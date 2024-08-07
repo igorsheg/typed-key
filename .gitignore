@@ -1,0 +1,36 @@
+# Zig build artifacts
+zig-cache/
+.zig-cache/
+zig-out/
+
+# Executables
+*.exe
+*.out
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Editor-specific files
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Dependency directories (if you're using a package manager)
+deps/
+
+# Any log files
+*.log
+
+# Any temporary files
+*.tmp
+
+tmp/
+dist/

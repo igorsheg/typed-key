@@ -1,0 +1,16 @@
+{
+  "app.title": "Welcome to Our Application!",
+  "app.greeting": "Hello {{user}, how are you today?",
+  "app.footer": "Thank you for visiting our site.",
+  "notification.newMessage": "You have {count} new messages.",
+  "form.submit": "Submit",
+  "form.errors": "Please correct the following errors:",
+  "user.profile": "{user}'s Profile",
+  "user.login": "Login or Email",
+  "error.404": "Error 404: Page not found",
+  "error.network": "A network error has occurred, please try again later.",
+  "APP.automatic_discounts_discount_list_offer_percentage_off_multiple_items_singular": "{{s}}% off\n{{s}} and 1 more",
+  "APP.system_settings_new_version_place_holder": "Version {{1$s}}, {{2$s}}",
+  "gemini_purchase.package_picker.cycle_selection.yearly": "{cycle, select, 1year {Yearly} other{}}",
+  "gemini_purchase.checkout.summary.license_per_cycle": "{count, plural, one {1 license} other {# licenses}} x {price} {cycle, select, MONTHLY {monthly} YEARLY {yearly} other {}}"
+}
