@@ -1,4 +1,4 @@
-name: Build and Publish VSCode Extension
+name: Publish
 on:
   release:
     types: [published]
@@ -68,7 +68,7 @@ jobs:
       - name: Set node
         uses: actions/setup-node@v3
         with:
-          node-version: lts/*
+          node-version: 20
           cache: pnpm
       - name: Install dependencies
         run: pnpm install
@@ -76,28 +76,27 @@ jobs:
         shell: bash
         run: |
           mkdir -p bundled dist
-          if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            cp target/${{ matrix.target }}/release/typed-key.exe bundled/
-          else
-            cp target/${{ matrix.target }}/release/typed-key bundled/
-          fi
-          pnpm vsce package -o dist/ --target ${{ matrix.code-target }}
+          cp target/${{ matrix.target }}/release/typed-key* bundled/
+          pnpm dlx vsce package -o dist/ --target ${{ matrix.code-target }}
       - name: Archive
         shell: bash
         run: |
           ver=${GITHUB_REF/refs\/*\//}
           archive="typed-key-$ver-${{ matrix.target }}"
+
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
             7z a "dist/${archive}.zip" target/${{ matrix.target }}/release/typed-key.exe
           else
             tar czf "dist/${archive}.tar.gz" -C target/${{ matrix.target }}/release typed-key
           fi
+
           ls -al dist/*
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
           path: dist
+
   publish:
     runs-on: ubuntu-latest
     needs: dist
@@ -113,7 +112,7 @@ jobs:
       - name: Set node
         uses: actions/setup-node@v3
         with:
-          node-version: lts/*
+          node-version: 20
           cache: pnpm
       - name: Install dependencies
         run: pnpm install
