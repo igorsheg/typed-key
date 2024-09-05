@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.10](https://github.com/igorsheg/typed-key/compare/v0.0.9...v0.0.10) (2024-09-05)
+
+
+### Chores
+
+* **ci:** update vsce package ([f2a6b1d](https://github.com/igorsheg/typed-key/commit/f2a6b1d3c00c013a2bf8794be7ec15f1be0d4204))
+
 ## [0.0.9](https://github.com/igorsheg/typed-key/compare/v0.0.8...v0.0.9) (2024-09-05)
 
 
