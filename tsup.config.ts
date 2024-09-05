@@ -7,6 +7,8 @@ export default defineConfig({
   format: ['cjs'],
   shims: false,
   dts: false,
+  bundle: true,
+  platform: 'node',
   external: [
     'vscode',
   ],
