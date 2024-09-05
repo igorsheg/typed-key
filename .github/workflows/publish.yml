@@ -3,8 +3,7 @@ on:
   release:
     types: [published]
 permissions:
-  contents: read
-
+  contents: write
 jobs:
   build-and-publish:
     strategy:
@@ -36,61 +35,57 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
           target: ${{ matrix.target }}
-
       - uses: Swatinem/rust-cache@v2
-
       - name: Update apt repositories (linux)
         if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'arm-unknown-linux-gnueabihf'
         run: sudo apt-get update
-
       - name: Install GCC arm64 (linux)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: sudo apt-get install gcc-aarch64-linux-gnu
-
       - name: Install GCC armhf (linux)
         if: matrix.target == 'arm-unknown-linux-gnueabihf'
         run: sudo apt-get install gcc-arm-linux-gnueabihf
-
       - run: cargo build --target ${{ matrix.target }} --release
-
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
           version: 9.7.1
-
       - name: Set node
         uses: actions/setup-node@v3
         with:
           node-version: lts/*
           cache: pnpm
-
       - name: Install dependencies
         run: pnpm install
-
+      - name: Copy binary to bundled directory
+        shell: bash
+        run: |
+          mkdir -p bundled
+          if [ "${{ matrix.os }}" == "windows-latest" ]; then
+            cp target/${{ matrix.target }}/release/typed-key.exe bundled/
+          else
+            cp target/${{ matrix.target }}/release/typed-key bundled/
+          fi
       - name: Build extension
         run: pnpm build
-
       - name: Package extension
         run: pnpm pack
-
       - name: Archive
         shell: bash
         run: |
           ver=${GITHUB_REF/refs\/*\//}
           archive="typed-key-$ver-${{ matrix.target }}"
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            7z a "dist/${archive}.zip" target/${{ matrix.target }}/release/typed-key.exe
+            7z a "dist/${archive}.zip" bundled/typed-key.exe
           else
-            tar czf "dist/${archive}.tar.gz" -C target/${{ matrix.target }}/release typed-key
+            tar czf "dist/${archive}.tar.gz" -C bundled typed-key
           fi
           ls -al dist/*
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -98,36 +93,29 @@ jobs:
           path: |
             dist
             *.vsix
-
   publish:
     needs: build-and-publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
           version: 9.7.1
-
       - name: Set node
         uses: actions/setup-node@v3
         with:
           node-version: lts/*
           cache: pnpm
-
       - name: Install dependencies
         run: pnpm install
-
       - name: Publish to VS Code Marketplace
         run: pnpm run publish
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-
       - name: Upload to GH release
         uses: softprops/action-gh-release@v2
         with:
