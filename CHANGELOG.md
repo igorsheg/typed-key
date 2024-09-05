@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.9](https://github.com/igorsheg/typed-key/compare/v0.0.8...v0.0.9) (2024-09-05)
+
+
+### Chores
+
+* **ci:** switch to pnpm dlx ([75a73a1](https://github.com/igorsheg/typed-key/commit/75a73a18a043f806974dcb550b4832794d4a5dd8))
+
 ## [0.0.8](https://github.com/igorsheg/typed-key/compare/v0.0.7...v0.0.8) (2024-09-05)
 
 
