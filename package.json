@@ -1,0 +1,124 @@
+{
+  "publisher": "igorsheg",
+  "name": "typed-key",
+  "displayName": "typed-key",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.7.1",
+  "description": "",
+  "author": "Igor Shegolev <igorsheg@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://igorsheg.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/igorsheg/typed-key"
+  },
+  "bugs": {
+    "url": "https://github.com/igorsheg/typed-key/issues"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "icon": "res/icon.png",
+  "files": [
+    "LICENSE.md",
+    "dist/*",
+    "res/*"
+  ],
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "category": "TypedKey",
+        "command": "typedkey.restart",
+        "title": "Restart"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "TypedKey",
+      "properties": {
+        "typedkey.path": {
+          "scope": "machine-overridable",
+          "type": "string",
+          "description": "Path to the `typed-key` binary. If empty the bundled binary will be used."
+        },
+        "typedkey.translationsDir": {
+          "type": "string",
+          "description": "Directory to search for translation files.",
+          "default": "src/assets/locales"
+        },
+        "typedkey.logLevel": {
+          "scope": "window",
+          "type": "string",
+          "enum": [
+            "off",
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "default": "warn",
+          "markdownDescription": "Logging level of the language server. Logs appear in the _Output -> Typedkey_ pane."
+        },
+        "typedkey.trace.server": {
+          "scope": "window",
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "enumDescriptions": [
+            "No traces",
+            "Trace sent/received",
+            "Includes content of messages"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server. Recommended for debugging only."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup src/extension.ts --external vscode",
+    "dev": "nr build --watch",
+    "prepare": "nr update",
+    "update": "vscode-ext-gen --output src/generated/meta.ts",
+    "lint": "eslint .",
+    "vscode:prepublish": "nr build",
+    "publish": "vsce publish --no-dependencies",
+    "pack": "vsce package --no-dependencies",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "release": "bumpp && nr publish"
+  },
+  "dependencies": {
+    "ultra-runner": "^3.10.5",
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^2.26.0",
+    "@antfu/ni": "^0.22.4",
+    "@types/node": "^22.4.1",
+    "@types/vscode": "^1.92.0",
+    "@vscode/vsce": "^3.0.0",
+    "bumpp": "^9.5.1",
+    "eslint": "^9.9.0",
+    "esno": "^4.7.0",
+    "pnpm": "^9.7.1",
+    "reactive-vscode": "^0.2.0",
+    "tsup": "^8.2.4",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.1",
+    "vitest": "^2.0.5",
+    "vscode-ext-gen": "^0.4.1"
+  }
+}
