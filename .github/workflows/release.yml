@@ -1,80 +1,25 @@
-name: Create Release
-on:
-  push:
-    branches:
-      - main
+name: Release
+
 permissions:
   contents: write
+
+on:
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9.7.1
-
-      - name: Set node
-        uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Setup Git
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-      - name: Check for existing tags
-        id: check-tags
-        run: |
-          if [ -z "$(git tag -l)" ]; then
-            echo "No tags found. Creating initial tag."
-            git tag v0.0.1
-            git push origin v0.0.1
-            echo "initial_tag=true" >> $GITHUB_OUTPUT
-          else
-            echo "initial_tag=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Bump version
-        if: steps.check-tags.outputs.initial_tag == 'false'
-        run: |
-          npm version patch
-          git push
-          git push --tags
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get current version
-        id: package-version
-        uses: martinbeentjes/npm-get-version-action@v1.3.1
-
-      - name: Generate Changelog
-        run: |
-          if [ "${{ steps.check-tags.outputs.initial_tag }}" == "true" ]; then
-            npx changelogithub
-          else
-            npx changelogithub --from v0.0.1 --to v${{ steps.package-version.outputs.current-version }}
-          fi
+      - run: npx changelogithub
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-
-      - name: Create Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ steps.package-version.outputs.current-version }}
-          release_name: Release v${{ steps.package-version.outputs.current-version }}
-          body_path: CHANGELOG.md
-          draft: false
-          prerelease: false
