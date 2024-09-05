@@ -124,7 +124,7 @@ jobs:
         run: pnpm install
       
       - name: Publish to VS Code Marketplace
-        run: pnpm publish --no-git-checks
+        run: pnpm run publish
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
       
