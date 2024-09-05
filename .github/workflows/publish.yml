@@ -120,9 +120,9 @@ jobs:
       - name: Inspect dist
         run: |
           ls -al dist/*
-          pnpm glob dist/**/*.vsix
+          npx glob dist/**/*.vsix
       - name: Publish to VS Code Marketplace
-        run: pnpm vsce publish --packagePath $(pnpm glob dist/**/*.vsix)
+        run: npx vsce publish --packagePath $(npx glob dist/**/*.vsix)
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
       - name: Upload to GH release
