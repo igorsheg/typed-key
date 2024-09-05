@@ -1,0 +1,139 @@
+name: Build and Publish VSCode Extension
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            code-target: win32-x64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            code-target: win32-arm64
+          - os: ubuntu-20.04
+            target: x86_64-unknown-linux-gnu
+            code-target: linux-x64
+          - os: ubuntu-20.04
+            target: aarch64-unknown-linux-gnu
+            code-target: linux-arm64
+          - os: ubuntu-20.04
+            target: arm-unknown-linux-gnueabihf
+            code-target: linux-armhf
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            code-target: darwin-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            code-target: darwin-arm64
+    name: Build and Publish (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Update apt repositories (linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'arm-unknown-linux-gnueabihf'
+        run: sudo apt-get update
+      
+      - name: Install GCC arm64 (linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get install gcc-aarch64-linux-gnu
+      
+      - name: Install GCC armhf (linux)
+        if: matrix.target == 'arm-unknown-linux-gnueabihf'
+        run: sudo apt-get install gcc-arm-linux-gnueabihf
+      
+      - run: cargo build --target ${{ matrix.target }} --release
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.7.1
+      
+      - name: Set node
+        uses: actions/setup-node@v3
+        with:
+          node-version: lts/*
+          cache: pnpm
+      
+      - name: Install dependencies
+        run: pnpm install
+      
+      - name: Build extension
+        run: pnpm build
+      
+      - name: Package extension
+        run: pnpm pack
+      
+      - name: Archive
+        shell: bash
+        run: |
+          ver=${GITHUB_REF/refs\/*\//}
+          archive="typed-key-$ver-${{ matrix.target }}"
+          if [ "${{ matrix.os }}" == "windows-latest" ]; then
+            7z a "dist/${archive}.zip" target/${{ matrix.target }}/release/typed-key.exe
+          else
+            tar czf "dist/${archive}.tar.gz" -C target/${{ matrix.target }}/release typed-key
+          fi
+          ls -al dist/*
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            dist
+            *.vsix
+
+  publish:
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.7.1
+      
+      - name: Set node
+        uses: actions/setup-node@v3
+        with:
+          node-version: lts/*
+          cache: pnpm
+      
+      - name: Install dependencies
+        run: pnpm install
+      
+      - name: Publish to VS Code Marketplace
+        run: pnpm publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      
+      - name: Publish to Open VSX Registry
+        run: npx ovsx publish $(find artifacts -name '*.vsix')
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+      
+      - name: Upload to GH release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
