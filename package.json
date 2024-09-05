@@ -2,7 +2,7 @@
   "publisher": "igorsheg",
   "name": "typed-key",
   "displayName": "typed-key",
-  "version": "0.0.5",
+  "version": "0.0.7",
   "private": true,
   "packageManager": "pnpm@9.7.1",
   "description": "",
