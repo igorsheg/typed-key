@@ -12,4 +12,5 @@ export default defineConfig({
   external: [
     'vscode',
   ],
+  noExternal: ['vscode-languageclient', 'ultra-runner'],
 })
