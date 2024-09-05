@@ -62,37 +62,33 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install
-      - name: Copy binary to bundled directory
+      - name: Copy binary and package extension
         shell: bash
         run: |
-          mkdir -p bundled
+          mkdir -p bundled dist
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
             cp target/${{ matrix.target }}/release/typed-key.exe bundled/
           else
             cp target/${{ matrix.target }}/release/typed-key bundled/
           fi
-      - name: Build extension
-        run: pnpm build
-      - name: Package extension
-        run: pnpm pack
+          npx vsce package -o dist/ --target ${{ matrix.code-target }}
       - name: Archive
         shell: bash
         run: |
           ver=${GITHUB_REF/refs\/*\//}
           archive="typed-key-$ver-${{ matrix.target }}"
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            7z a "dist/${archive}.zip" bundled/typed-key.exe
+            7z a "dist/${archive}.zip" target/${{ matrix.target }}/release/typed-key.exe
           else
-            tar czf "dist/${archive}.tar.gz" -C bundled typed-key
+            tar czf "dist/${archive}.tar.gz" -C target/${{ matrix.target }}/release typed-key
           fi
           ls -al dist/*
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: |
-            dist
-            *.vsix
+          path: dist
+
   publish:
     needs: build-and-publish
     runs-on: ubuntu-latest
@@ -113,7 +109,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install
       - name: Publish to VS Code Marketplace
-        run: pnpm run publish
+        run: npx vsce publish --packagePath $(npx glob artifacts/**/*.vsix)
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
       - name: Upload to GH release
