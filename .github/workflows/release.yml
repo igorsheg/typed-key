@@ -26,7 +26,7 @@ jobs:
       - name: Setup
         run: npm i -g @antfu/ni
       - name: Generate Changelog
-        run: nr changelogithub
+        run: npx changelogithub
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
 
