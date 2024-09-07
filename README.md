@@ -35,8 +35,6 @@ In Visual Studio Code, you can configure the extension through the following set
 
 - `typedkey.path`: Path to the `typed-key` binary. If empty, the bundled binary will be used.
 - `typedkey.translationsDir`: Directory to search for translation files. Default: `"src/assets/locales"`
-- `typedkey.logLevel`: Logging level of the language server. Options: `"off"`, `"error"`, `"warn"`, `"info"`, `"debug"`, `"trace"`. Default: `"warn"`
-- `typedkey.trace.server`: Traces the communication between VS Code and the language server. Options: `"off"`, `"messages"`, `"verbose"`. Default: `"off"`
 
 For Neovim users, please refer to the LSP configuration documentation for setup options.
 
