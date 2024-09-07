@@ -1,59 +1,50 @@
-# typos-lsp
+# i18next LSP
 
-[![ci](https://github.com/tekumara/typos-lsp/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/tekumara/typos-lsp/actions/workflows/ci.yml)
-[![release](https://github.com/tekumara/typos-lsp/actions/workflows/release.yml/badge.svg?event=release)](https://github.com/tekumara/typos-lsp/actions/workflows/release.yml)
-![downloads](https://img.shields.io/github/downloads/tekumara/typos-lsp/total)
+![TypedKey Logo](images/typedkey.png)
 
-> **Source code spell checker for Visual Studio Code and LSP clients**
-
-[typos](https://github.com/crate-ci/typos) is a low false-positive source code spell checker. This project exposes `typos` via a Language Server Protocol (LSP) server and Visual Studio Code extension to provide a fast, low memory, in-editor spell checker.
-
-## Install
-
-- Vscode: Install [Typos spell checker](https://marketplace.visualstudio.com/items?itemName=tekumara.typos-vscode) from the VSCode Marketplace.
-- VSCodium: Install [Typos spell checker](https://open-vsx.org/extension/tekumara/typos-vscode) from the Open VSX Registry.
-- Neovim: Install `typos-lsp` using [mason](https://mason-registry.dev/registry/list#typos-lsp) or download `typos-lsp` from the [releases page](https://github.com/tekumara/typos-lsp/releases).
-- Helix: Download `typos-lsp` from the [releases page](https://github.com/tekumara/typos-lsp/releases) and place it on your PATH.
-- Other clients: Download `typos-lsp` from the [releases page](https://github.com/tekumara/typos-lsp/releases).
-
-For configuration see:
-
-- [VS Code Settings](docs/vscode-settings.md)
-- [Neovim LSP config](docs/neovim-lsp-config.md)
-- [Helix config](docs/helix-config.md)
+A Language Server Protocol (LSP) implementation for i18next, providing intelligent features for your internationalization needs.
 
 ## Features
 
-<!-- markdownlint-disable-file MD033 -->
+- Smart autocompletion for translation keys
+- Hover information with translation previews
+- Type checking for translation parameters
+- Compatible with Neovim (native LSP) and Visual Studio Code
 
-- Identify misspellings and provide a Quick Fix with suggested corrections:
+## Installation
 
-    <img width="373" alt="Diagnostics example with Quick Fix" src="https://user-images.githubusercontent.com/125105/232224205-eb9c6123-0d38-4d60-ac93-0990016453e0.png">
+### Visual Studio Code
+
+Install the extension from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=igorsheg.typed-key).
+
+### Neovim
+
+Add the following to your Neovim configuration:
+
+```lua
+require('lspconfig').typedkey.setup{}
+```
 
 ## Usage
 
-Once installed `typos` will automatically execute when you open or edit any file.
+Once installed, the LSP will automatically activate for supported file types, providing enhanced i18next support.
 
-## Config file support
+## Configuration
 
-Supports [config fields](https://github.com/crate-ci/typos/blob/master/docs/reference.md) in `typos.toml`, `_typos.toml`, or `.typos.toml`, except:
+In Visual Studio Code, you can configure the extension through the following settings:
 
-- `files.ignore*` - have no effect.
-- `default.check-filename` - file names are never spell checked.
-- `default.check-file` - files are always checked.
-- `*.binary` - binary files are always checked.
+- `typedkey.path`: Path to the `typed-key` binary. If empty, the bundled binary will be used.
+- `typedkey.translationsDir`: Directory to search for translation files. Default: `"src/assets/locales"`
+- `typedkey.logLevel`: Logging level of the language server. Options: `"off"`, `"error"`, `"warn"`, `"info"`, `"debug"`, `"trace"`. Default: `"warn"`
+- `typedkey.trace.server`: Traces the communication between VS Code and the language server. Options: `"off"`, `"messages"`, `"verbose"`. Default: `"off"`
 
-Config files will be read from the workspace folder or its parents. If there is no workspace folder, then no config file will be read and the typos defaults will be used.
-
-## Caveats
-
-- File names are not spell checked.
-- Server must be restarted after changing the config files (ie: typos.toml).
-
-## Why aren't my misspellings being corrected?
-
-To minimise false-positives `typos` only suggests corrections for known misspellings, rather than unknown words like a traditional spell-checker. For more info see [Why was ... not corrected?](https://github.com/crate-ci/typos?tab=readme-ov-file#why-was--not-corrected).
+For Neovim users, please refer to the LSP configuration documentation for setup options.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License.
+
