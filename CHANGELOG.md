@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.12](https://github.com/igorsheg/typed-key/compare/v0.0.11...v0.0.12) (2024-09-07)
+
+
+### Features
+
+* **vscode:** enable support for monorepo workspace setup ([dc8e1a6](https://github.com/igorsheg/typed-key/commit/dc8e1a6bbb65409187f6db59660bdd79a558413d))
+
 ## [0.0.11](https://github.com/igorsheg/typed-key/compare/v0.0.10...v0.0.11) (2024-09-05)
 
 
