@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.11](https://github.com/igorsheg/typed-key/compare/v0.0.10...v0.0.11) (2024-09-05)
+
+
+### Chores
+
+* **ci:** add .vscodeignore ([377278b](https://github.com/igorsheg/typed-key/commit/377278b75a5ecf497ec136289147f6f95b32c380))
+
 ## [0.0.10](https://github.com/igorsheg/typed-key/compare/v0.0.9...v0.0.10) (2024-09-05)
 
 
