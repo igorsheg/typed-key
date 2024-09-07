@@ -1,3 +1,3 @@
-declare function t(key: string, options?: Record<string, string>): string;
+declare function t(key: string, options?: Record<string, string>): string
 
-t("premium-cart.cycle-plan.description");
+t('premium-cart.cycle-plan.description')
