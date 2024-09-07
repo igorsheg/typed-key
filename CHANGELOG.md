@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.13](https://github.com/igorsheg/typed-key/compare/v0.0.12...v0.0.13) (2024-09-07)
+
+
+### Chores
+
+* **repo:** update readme ([e3839f6](https://github.com/igorsheg/typed-key/commit/e3839f62cf16f9693bb7420da26def38a1c0360e))
+
 ## [0.0.12](https://github.com/igorsheg/typed-key/compare/v0.0.11...v0.0.12) (2024-09-07)
 
 
