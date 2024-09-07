@@ -1,6 +1,6 @@
 # i18next LSP
 
-![TypedKey Logo](images/typedkey.png)
+![TypedKey Logo](https://github.com/igorsheg/typed-key/blob/main/res/icon.png?raw=true)
 
 A Language Server Protocol (LSP) implementation for i18next, providing intelligent features for your internationalization needs.
 
