@@ -72,4 +72,7 @@ impl LanguageServer for TypedKeyLsp {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         self.0.write().await.hover(params).await
     }
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        self.0.write().await.did_change_configuration(params).await
+    }
 }

@@ -2,9 +2,9 @@ use dashmap::DashMap;
 use serde_json::Value;
 use tower_lsp::{
     lsp_types::{
-        ConfigurationItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-        DidOpenTextDocumentParams, Hover, HoverContents, HoverParams, InitializedParams,
-        MarkupContent, MarkupKind, MessageType, Url,
+        ConfigurationItem, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+        DidCloseTextDocumentParams, DidOpenTextDocumentParams, Hover, HoverContents, HoverParams,
+        InitializedParams, MarkupContent, MarkupKind, MessageType, Url,
     },
     Client,
 };
@@ -115,5 +115,34 @@ impl TypedKeyLspImpl {
         }
 
         Ok(None)
+    }
+
+    pub(crate) async fn did_change_configuration(&mut self, params: DidChangeConfigurationParams) {
+        if let Some(settings) = params.settings.as_object() {
+            if let Some(typedkey_settings) = settings.get("typedkey") {
+                if let Ok(new_config) =
+                    serde_json::from_value::<BackendConfig>(typedkey_settings.clone())
+                {
+                    self.config = new_config;
+                    self.client
+                        .log_message(MessageType::INFO, "Configuration updated")
+                        .await;
+
+                    // Reload translations with the new configuration
+                    if let Err(e) = self.load_translations().await {
+                        self.client
+                            .log_message(
+                                MessageType::ERROR,
+                                format!("Failed to reload translations: {}", e),
+                            )
+                            .await;
+                    }
+                } else {
+                    self.client
+                        .log_message(MessageType::ERROR, "Failed to parse new configuration")
+                        .await;
+                }
+            }
+        }
     }
 }
