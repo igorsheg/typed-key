@@ -16,6 +16,7 @@ import {
 } from 'vscode-languageclient/node'
 
 let client: LanguageClient | undefined
+let lastConfiguredPath: string | null = null
 
 export async function activate(
   context: ExtensionContext,
@@ -109,12 +110,19 @@ async function createClient(
     },
   }
 
-  return new LanguageClient(
+  const client = new LanguageClient(
     name.toLowerCase(),
     name,
     serverOptions,
     clientOptions,
   )
+
+  const initialUri = workspace.workspaceFolders?.[0]?.uri
+  if (initialUri) {
+    await updateConfiguration(client, initialUri)
+  }
+
+  return client
 }
 
 async function updateConfiguration(client: LanguageClient, uri: Uri): Promise<void> {
@@ -125,15 +133,20 @@ async function updateConfiguration(client: LanguageClient, uri: Uri): Promise<vo
     if (configPath) {
       const fullResourcePath = path.join(packagePath, configPath)
 
-      const settings = {
-        typedkey: {
-          translationsDir: fullResourcePath,
-        },
-      }
+      // Only send a notification if the path has changed
+      if (fullResourcePath !== lastConfiguredPath) {
+        lastConfiguredPath = fullResourcePath
 
-      await client.sendNotification(DidChangeConfigurationNotification.type, {
-        settings,
-      })
+        const settings = {
+          typedkey: {
+            translationsDir: fullResourcePath,
+          },
+        }
+
+        await client.sendNotification(DidChangeConfigurationNotification.type, {
+          settings,
+        })
+      }
     }
   }
 }
