@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.14](https://github.com/igorsheg/typed-key/compare/v0.0.13...v0.0.14) (2024-09-08)
+
+
+### Features
+
+* **lsp:** add select cases completion ([a3cf6f0](https://github.com/igorsheg/typed-key/commit/a3cf6f07e3db28fefc82ec70f556236e2a7e4901))
+
+
+### Chores
+
+* **lsp:** cleanup ([dd30000](https://github.com/igorsheg/typed-key/commit/dd30000af08d3683b7ca68f2e0da30dade55d073))
+
 ## [0.0.13](https://github.com/igorsheg/typed-key/compare/v0.0.12...v0.0.13) (2024-09-07)
 
 
