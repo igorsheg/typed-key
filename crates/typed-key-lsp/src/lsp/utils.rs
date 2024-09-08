@@ -34,10 +34,3 @@ pub(crate) fn node_to_range(node: Node) -> Range {
         },
     }
 }
-
-pub(crate) fn is_node_at_or_before_cursor(
-    node: tree_sitter::Node,
-    parent: tree_sitter::Node,
-) -> bool {
-    node.end_position().column <= parent.end_position().column
-}
