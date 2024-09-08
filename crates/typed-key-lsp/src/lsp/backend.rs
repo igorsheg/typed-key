@@ -29,9 +29,21 @@ impl LanguageServer for TypedKeyLsp {
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![
-                        '"'.to_string(),
-                        '('.to_string(),
-                        ','.to_string(),
+                        "t(".to_string(),
+                        "\"".to_string(),
+                        "'".to_string(),
+                        "`".to_string(),
+                        "{".to_string(),
+                        "}".to_string(),
+                        ",".to_string(),
+                        ":".to_string(),
+                        ".".to_string(),
+                    ]),
+                    all_commit_characters: Some(vec![
+                        "'".to_string(),
+                        "\"".to_string(),
+                        "`".to_string(),
+                        ")".to_string(),
                     ]),
                     ..Default::default()
                 }),

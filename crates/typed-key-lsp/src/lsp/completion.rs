@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use dashmap::DashMap;
 use serde_json::Value;
 use tower_lsp::jsonrpc::Error;
 use tower_lsp::{
@@ -262,31 +261,6 @@ impl TypedKeyLspImpl {
         }
 
         Ok(None)
-    }
-
-    pub(crate) fn extract_keys(value: &Value, prefix: String, keys: &DashMap<String, Value>) {
-        match value {
-            Value::Object(map) => {
-                for (k, v) in map {
-                    let new_key = if prefix.is_empty() {
-                        k.clone()
-                    } else {
-                        format!("{}.{}", prefix, k)
-                    };
-
-                    if !keys.contains_key(&new_key) {
-                        keys.insert(new_key.clone(), v.clone());
-                    }
-
-                    Self::extract_keys(v, new_key, keys);
-                }
-            }
-            _ => {
-                if !prefix.is_empty() && !keys.contains_key(&prefix) {
-                    keys.insert(prefix, value.clone());
-                }
-            }
-        }
     }
 }
 
