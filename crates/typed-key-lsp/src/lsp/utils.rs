@@ -34,3 +34,14 @@ pub(crate) fn node_to_range(node: Node) -> Range {
         },
     }
 }
+
+pub(crate) fn traverse_nodes(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut nodes = vec![node];
+    let mut cursor = node.walk();
+
+    for child in node.children(&mut cursor) {
+        nodes.extend(traverse_nodes(child));
+    }
+
+    nodes
+}

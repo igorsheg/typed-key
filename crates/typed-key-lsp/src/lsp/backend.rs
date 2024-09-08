@@ -21,6 +21,13 @@ impl TypedKeyLsp {
     }
 }
 
+impl TypedKeyLsp {
+    async fn handle_document_change(&self, uri: Url) {
+        let inner = self.0.read().await;
+        inner.publish_diagnostics(uri).await;
+    }
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for TypedKeyLsp {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
@@ -66,25 +73,50 @@ impl LanguageServer for TypedKeyLsp {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.0.write().await.did_open(params).await
+        let uri = params.text_document.uri.clone();
+        {
+            let inner = self.0.read().await;
+            inner.did_open(params).await;
+        }
+        self.handle_document_change(uri).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        self.0.write().await.did_change(params).await
+        let uri = params.text_document.uri.clone();
+        {
+            let inner = self.0.read().await;
+            inner.did_change(params).await;
+        }
+        self.handle_document_change(uri).await;
+    }
+
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri.clone();
+        self.handle_document_change(uri).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.0.write().await.did_close(params).await
+        let uri = params.text_document.uri.clone();
+        {
+            let inner = self.0.read().await;
+            inner.did_close(params).await;
+        }
+        self.0
+            .read()
+            .await
+            .client
+            .publish_diagnostics(uri, vec![], None)
+            .await;
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        self.0.write().await.handle_completion(params).await
+        self.0.read().await.handle_completion(params).await
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        self.0.write().await.hover(params).await
+        self.0.read().await.hover(params).await
     }
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
-        self.0.write().await.did_change_configuration(params).await
+        self.0.write().await.did_change_configuration(params).await;
     }
 }

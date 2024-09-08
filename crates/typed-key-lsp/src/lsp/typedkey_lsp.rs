@@ -136,6 +136,7 @@ impl TypedKeyLspImpl {
                         .log_message(MessageType::INFO, "Configuration updated")
                         .await;
 
+                    // Reload translations
                     if let Err(e) = self.load_translations().await {
                         self.client
                             .log_message(
