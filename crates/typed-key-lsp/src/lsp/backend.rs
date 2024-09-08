@@ -58,6 +58,7 @@ impl LanguageServer for TypedKeyLsp {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::INCREMENTAL,
                 )),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -118,5 +119,10 @@ impl LanguageServer for TypedKeyLsp {
     }
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
         self.0.write().await.did_change_configuration(params).await;
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let inner = self.0.read().await;
+        inner.handle_code_action(params).await
     }
 }

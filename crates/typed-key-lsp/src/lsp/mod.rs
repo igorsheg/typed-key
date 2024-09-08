@@ -1,3 +1,4 @@
+pub(crate) mod action;
 pub mod backend;
 pub(crate) mod completion;
 pub(crate) mod config;

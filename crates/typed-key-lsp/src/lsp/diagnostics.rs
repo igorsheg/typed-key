@@ -1,7 +1,14 @@
+use serde::{Deserialize, Serialize};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
 use super::{typedkey_lsp::TypedKeyLspImpl, utils::traverse_nodes};
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct MissingVariableDiagnosticData {
+    pub(crate) key: String,
+    pub(crate) missing_variable: String,
+}
 
 impl TypedKeyLspImpl {
     pub(crate) async fn publish_diagnostics(&self, uri: Url) {
@@ -82,7 +89,11 @@ impl TypedKeyLspImpl {
 
                     for var in required_vars.iter() {
                         if !provided_vars.contains(var) {
-                            let range = self.node_to_range(node);
+                            let range = self.node_to_range(*key_node);
+                            let diagnostic_data = MissingVariableDiagnosticData {
+                                key: key.to_string(),
+                                missing_variable: var.to_string(),
+                            };
                             diagnostics.push(Diagnostic {
                                 range,
                                 severity: Some(DiagnosticSeverity::WARNING),
@@ -95,7 +106,7 @@ impl TypedKeyLspImpl {
                                 ),
                                 related_information: None,
                                 tags: None,
-                                data: None,
+                                data: Some(serde_json::to_value(diagnostic_data).ok()?),
                             });
                         }
                     }
