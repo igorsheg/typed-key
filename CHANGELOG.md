@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.15](https://github.com/igorsheg/typed-key/compare/v0.0.14...v0.0.15) (2024-09-08)
+
+
+### Features
+
+* **lsp:** publish missing vars diagnostics ([05fe8ee](https://github.com/igorsheg/typed-key/commit/05fe8ee7ecfa0cd0f255e7ddf4ee762d937cb818))
+
 ## [0.0.14](https://github.com/igorsheg/typed-key/compare/v0.0.13...v0.0.14) (2024-09-08)
 
 
