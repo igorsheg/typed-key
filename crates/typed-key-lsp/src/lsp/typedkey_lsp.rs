@@ -101,8 +101,16 @@ impl TypedKeyLspImpl {
             if let Some(value) = self.translation_keys.get(&key) {
                 let (variables, select_options) = self.extract_variables_and_options(&value);
                 let typed_key_docs = TypedKeyDocs::new();
-                let documentation =
-                    typed_key_docs.format_documentation(&key, &value, &variables, &select_options);
+                let documentation = typed_key_docs.format_documentation(
+                    &key,
+                    &value,
+                    &variables,
+                    &select_options
+                        .iter()
+                        .flat_map(|(_, v)| v)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                );
 
                 return Ok(Some(Hover {
                     contents: HoverContents::Markup(MarkupContent {
