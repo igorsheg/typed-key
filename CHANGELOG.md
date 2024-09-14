@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.16](https://github.com/igorsheg/typed-key/compare/v0.0.15...v0.0.16) (2024-09-14)
+
+
+### Chores
+
+* **repo:** remove old LICENSE ([4c63675](https://github.com/igorsheg/typed-key/commit/4c63675629d43e917270050129dbc1cb70d11d4b))
+
 ## [0.0.15](https://github.com/igorsheg/typed-key/compare/v0.0.14...v0.0.15) (2024-09-08)
 
 
