@@ -1,4 +1,5 @@
 use crate::lex::{Lexer, Token};
+use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -161,6 +162,52 @@ impl AstNode {
             nodes
         } else {
             vec![self]
+        }
+    }
+}
+
+impl AstNode {
+    pub fn to_json(&self) -> JsonValue {
+        match self {
+            AstNode::Root(nodes) => {
+                json!({
+                    "type": "root",
+                    "children": nodes.iter().map(|node| node.to_json()).collect::<Vec<JsonValue>>()
+                })
+            }
+            AstNode::Text(text) => {
+                json!({
+                    "type": "text",
+                    "value": text
+                })
+            }
+            AstNode::Variable(var) => {
+                json!({
+                    "type": "variable",
+                    "name": var
+                })
+            }
+            AstNode::Plural { variable, options } => {
+                json!({
+                    "type": "plural",
+                    "variable": variable,
+                    "options": options.iter().map(|(k, v)| (k.clone(), json!(v.iter().map(|node| node.to_json()).collect::<Vec<JsonValue>>()))).collect::<serde_json::Map<String, JsonValue>>()
+                })
+            }
+            AstNode::Select { variable, options } => {
+                json!({
+                    "type": "select",
+                    "variable": variable,
+                    "options": options.iter().map(|(k, v)| (k.clone(), json!(v.iter().map(|node| node.to_json()).collect::<Vec<JsonValue>>()))).collect::<serde_json::Map<String, JsonValue>>()
+                })
+            }
+            AstNode::HtmlTag { name, children } => {
+                json!({
+                    "type": "html_tag",
+                    "name": name,
+                    "children": children.iter().map(|node| node.to_json()).collect::<Vec<JsonValue>>()
+                })
+            }
         }
     }
 }

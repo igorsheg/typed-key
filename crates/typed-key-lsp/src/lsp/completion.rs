@@ -24,141 +24,141 @@ pub(crate) enum TFunctionPosition {
 }
 
 impl TypedKeyLspImpl {
-    pub(crate) async fn handle_completion(
-        &self,
-        params: CompletionParams,
-    ) -> Result<Option<CompletionResponse>> {
-        self.client
-            .log_message(MessageType::INFO, "Received completion request")
-            .await;
-
-        let position = params.text_document_position.position;
-        let document_content = self
-            .document_map
-            .get(&params.text_document_position.text_document.uri)
-            .map(|content| content.clone())
-            .unwrap_or_default();
-
-        let t_function_position = self
-            .get_tfunction_position_with_optimized_query(&document_content, position)
-            .await?;
-
-        self.client
-            .log_message(
-                MessageType::INFO,
-                format!("t_function_position: {:?}", t_function_position),
-            )
-            .await;
-
-        match t_function_position {
-            TFunctionPosition::FirstParam => {
-                let completions = self
-                    .translation_keys
-                    .iter()
-                    .map(|entry| {
-                        let key = entry.key();
-                        let value = entry.value();
-                        let (variables, select_options) = self.extract_variables_and_options(value);
-
-                        let mut detail = format!("Translation key: {}", key);
-                        if !variables.is_empty() {
-                            detail.push_str("\nParameters: ");
-                            detail.push_str(&variables.join(", "));
-                        }
-                        if !select_options.is_empty() {
-                            detail.push_str("\nSelect options:");
-                            for (var, options) in select_options.iter() {
-                                detail.push_str(&format!("\n  {}: {}", var, options.join(", ")));
-                            }
-                        }
-
-                        let typed_key_docs = TypedKeyDocs::new();
-                        let documentation = typed_key_docs.format_documentation(
-                            key,
-                            value,
-                            &variables,
-                            &select_options
-                                .iter()
-                                .flat_map(|(_, v)| v)
-                                .cloned()
-                                .collect::<Vec<_>>(),
-                        );
-
-                        CompletionItem {
-                            label: key.to_owned(),
-                            kind: Some(CompletionItemKind::CONSTANT),
-                            detail: Some(detail),
-                            documentation: Some(Documentation::MarkupContent(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: documentation,
-                            })),
-                            ..Default::default()
-                        }
-                    })
-                    .collect();
-
-                Ok(Some(CompletionResponse::Array(completions)))
-            }
-            TFunctionPosition::SecondParam(key) => {
-                if let Some(entry) = self.translation_keys.get(&key) {
-                    let value = entry.value();
-                    let (variables, select_options) = self.extract_variables_and_options(value);
-
-                    let (current_param, is_value_context, used_params) = self
-                        .get_current_parameter_context(&params.text_document_position)
-                        .await?;
-
-                    let mut completions: Vec<CompletionItem> = Vec::new();
-
-                    match (current_param, is_value_context) {
-                        (Some(param), true) => {
-                            // If we're editing a specific parameter's value, provide only its select options
-                            if let Some(options) = select_options.get(&param) {
-                                for option in options {
-                                    completions.push(CompletionItem {
-                                        label: option.clone(),
-                                        kind: Some(CompletionItemKind::ENUM_MEMBER),
-                                        detail: Some(format!(
-                                            "Select option for {}: {}",
-                                            param, key
-                                        )),
-                                        insert_text: Some(option.clone()),
-                                        insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                                        ..Default::default()
-                                    });
-                                }
-                            }
-                        }
-                        _ => {
-                            // If we're not editing a specific parameter's value, provide unused variables as completions
-                            for var in &variables {
-                                if !used_params.contains(var) {
-                                    let kind = if select_options.contains_key(var) {
-                                        CompletionItemKind::ENUM
-                                    } else {
-                                        CompletionItemKind::VARIABLE
-                                    };
-                                    completions.push(CompletionItem {
-                                        label: var.clone(),
-                                        kind: Some(kind),
-                                        detail: Some(format!("Variable for key: {}", key)),
-                                        insert_text: Some(format!("{}: ", var)),
-                                        insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                                        ..Default::default()
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    Ok(Some(CompletionResponse::Array(completions)))
-                } else {
-                    Ok(None)
-                }
-            }
-            TFunctionPosition::Outside => Ok(None),
-        }
-    }
+    // pub(crate) async fn handle_completion(
+    //     &self,
+    //     params: CompletionParams,
+    // ) -> Result<Option<CompletionResponse>> {
+    //     self.client
+    //         .log_message(MessageType::INFO, "Received completion request")
+    //         .await;
+    //
+    //     let position = params.text_document_position.position;
+    //     let document_content = self
+    //         .document_map
+    //         .get(&params.text_document_position.text_document.uri)
+    //         .map(|content| content.clone())
+    //         .unwrap_or_default();
+    //
+    //     let t_function_position = self
+    //         .get_tfunction_position_with_optimized_query(&document_content, position)
+    //         .await?;
+    //
+    //     self.client
+    //         .log_message(
+    //             MessageType::INFO,
+    //             format!("t_function_position: {:?}", t_function_position),
+    //         )
+    //         .await;
+    //
+    //     match t_function_position {
+    //         TFunctionPosition::FirstParam => {
+    //             let completions = self
+    //                 .translation_keys
+    //                 .iter()
+    //                 .map(|entry| {
+    //                     let key = entry.key();
+    //                     let value = entry.value();
+    //                     let (variables, select_options) = self.extract_variables_and_options(value);
+    //
+    //                     let mut detail = format!("Translation key: {}", key);
+    //                     if !variables.is_empty() {
+    //                         detail.push_str("\nParameters: ");
+    //                         detail.push_str(&variables.join(", "));
+    //                     }
+    //                     if !select_options.is_empty() {
+    //                         detail.push_str("\nSelect options:");
+    //                         for (var, options) in select_options.iter() {
+    //                             detail.push_str(&format!("\n  {}: {}", var, options.join(", ")));
+    //                         }
+    //                     }
+    //
+    //                     let typed_key_docs = TypedKeyDocs::new();
+    //                     let documentation = typed_key_docs.format_documentation(
+    //                         key,
+    //                         value,
+    //                         &variables,
+    //                         &select_options
+    //                             .iter()
+    //                             .flat_map(|(_, v)| v)
+    //                             .cloned()
+    //                             .collect::<Vec<_>>(),
+    //                     );
+    //
+    //                     CompletionItem {
+    //                         label: key.to_owned(),
+    //                         kind: Some(CompletionItemKind::CONSTANT),
+    //                         detail: Some(detail),
+    //                         documentation: Some(Documentation::MarkupContent(MarkupContent {
+    //                             kind: MarkupKind::Markdown,
+    //                             value: documentation,
+    //                         })),
+    //                         ..Default::default()
+    //                     }
+    //                 })
+    //                 .collect();
+    //
+    //             Ok(Some(CompletionResponse::Array(completions)))
+    //         }
+    //         TFunctionPosition::SecondParam(key) => {
+    //             if let Some(entry) = self.translation_keys.get(&key) {
+    //                 let value = entry.value();
+    //                 let (variables, select_options) = self.extract_variables_and_options(value);
+    //
+    //                 let (current_param, is_value_context, used_params) = self
+    //                     .get_current_parameter_context(&params.text_document_position)
+    //                     .await?;
+    //
+    //                 let mut completions: Vec<CompletionItem> = Vec::new();
+    //
+    //                 match (current_param, is_value_context) {
+    //                     (Some(param), true) => {
+    //                         // If we're editing a specific parameter's value, provide only its select options
+    //                         if let Some(options) = select_options.get(&param) {
+    //                             for option in options {
+    //                                 completions.push(CompletionItem {
+    //                                     label: option.clone(),
+    //                                     kind: Some(CompletionItemKind::ENUM_MEMBER),
+    //                                     detail: Some(format!(
+    //                                         "Select option for {}: {}",
+    //                                         param, key
+    //                                     )),
+    //                                     insert_text: Some(option.clone()),
+    //                                     insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+    //                                     ..Default::default()
+    //                                 });
+    //                             }
+    //                         }
+    //                     }
+    //                     _ => {
+    //                         // If we're not editing a specific parameter's value, provide unused variables as completions
+    //                         for var in &variables {
+    //                             if !used_params.contains(var) {
+    //                                 let kind = if select_options.contains_key(var) {
+    //                                     CompletionItemKind::ENUM
+    //                                 } else {
+    //                                     CompletionItemKind::VARIABLE
+    //                                 };
+    //                                 completions.push(CompletionItem {
+    //                                     label: var.clone(),
+    //                                     kind: Some(kind),
+    //                                     detail: Some(format!("Variable for key: {}", key)),
+    //                                     insert_text: Some(format!("{}: ", var)),
+    //                                     insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+    //                                     ..Default::default()
+    //                                 });
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //
+    //                 Ok(Some(CompletionResponse::Array(completions)))
+    //             } else {
+    //                 Ok(None)
+    //             }
+    //         }
+    //         TFunctionPosition::Outside => Ok(None),
+    //     }
+    // }
 
     async fn get_current_parameter_context(
         &self,
