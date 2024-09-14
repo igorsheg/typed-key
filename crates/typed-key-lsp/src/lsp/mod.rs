@@ -1,9 +1,12 @@
 pub(crate) mod action;
+pub(crate) mod ast;
 pub mod backend;
 pub(crate) mod completion;
 pub(crate) mod config;
 pub(crate) mod diagnostics;
 pub(crate) mod docs;
 pub(crate) mod fs;
+pub(crate) mod hover;
+pub(crate) mod position;
 pub(crate) mod typedkey_lsp;
 pub(crate) mod utils;

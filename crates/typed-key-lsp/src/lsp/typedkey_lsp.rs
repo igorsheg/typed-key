@@ -3,13 +3,12 @@ use serde_json::Value;
 use tower_lsp::{
     lsp_types::{
         ConfigurationItem, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-        DidCloseTextDocumentParams, DidOpenTextDocumentParams, Hover, HoverContents, HoverParams,
-        InitializedParams, MarkupContent, MarkupKind, MessageType, Url,
+        DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializedParams, MessageType, Url,
     },
     Client,
 };
 
-use super::{config::BackendConfig, docs::TypedKeyDocs, utils::position_to_index};
+use super::{config::BackendConfig, utils::position_to_index};
 
 pub struct TypedKeyLspImpl {
     pub client: Client,
@@ -79,50 +78,6 @@ impl TypedKeyLspImpl {
 
     pub(crate) async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.document_map.remove(&params.text_document.uri);
-    }
-
-    pub(crate) async fn hover(
-        &self,
-        params: HoverParams,
-    ) -> tower_lsp::jsonrpc::Result<Option<Hover>> {
-        let position = params.text_document_position_params.position;
-        let uri = params.text_document_position_params.text_document.uri;
-
-        let document_content = self
-            .document_map
-            .get(&uri)
-            .map(|content| content.clone())
-            .unwrap_or_default();
-
-        if let Some((key, range)) = self
-            .get_translation_key_at_position(&document_content, position)
-            .await?
-        {
-            if let Some(value) = self.translation_keys.get(&key) {
-                let (variables, select_options) = self.extract_variables_and_options(&value);
-                let typed_key_docs = TypedKeyDocs::new();
-                let documentation = typed_key_docs.format_documentation(
-                    &key,
-                    &value,
-                    &variables,
-                    &select_options
-                        .iter()
-                        .flat_map(|(_, v)| v)
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                );
-
-                return Ok(Some(Hover {
-                    contents: HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: documentation,
-                    }),
-                    range: Some(range),
-                }));
-            }
-        }
-
-        Ok(None)
     }
 
     pub(crate) async fn did_change_configuration(&mut self, params: DidChangeConfigurationParams) {

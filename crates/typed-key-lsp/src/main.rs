@@ -21,6 +21,8 @@ enum Commands {
     },
     Parse {
         filename: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
     GenerateTypes {
         input_dir: PathBuf,
@@ -38,7 +40,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     match args.command {
         Some(Commands::Tokenize { filename }) => tokenize(filename),
-        Some(Commands::Parse { filename }) => parse_file(filename),
+        Some(Commands::Parse { filename, json }) => parse_file(filename, json),
         Some(Commands::GenerateTypes {
             input_dir,
             output_file,
@@ -58,13 +60,28 @@ fn tokenize(filename: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn parse_file(filename: PathBuf) -> Result<()> {
+fn parse_file(filename: PathBuf, json: bool) -> Result<()> {
     let file_contents = fs::read_to_string(&filename)
         .into_diagnostic()
         .wrap_err_with(|| format!("reading '{}' failed", filename.display()))?;
+
     let parser = TypedKeyParser::new(&file_contents);
-    let parsed = parser.parse().unwrap();
-    println!("Trans {:?}", parsed);
+    let parsed = parser
+        .parse()
+        .map_err(|e| miette::miette!("Parsing failed: {}", e))?;
+
+    if json {
+        let json_output = parsed.to_json();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json_output)
+                .into_diagnostic()
+                .wrap_err("Failed to serialize to JSON")?
+        );
+    } else {
+        println!("Trans {:?}", parsed);
+    }
+
     Ok(())
 }
 
