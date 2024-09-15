@@ -9,7 +9,7 @@ pub struct BackendConfig {
 impl BackendConfig {
     pub fn default() -> Self {
         Self {
-            translations_dir: String::from("src/assets/locales"),
+            translations_dir: String::from("src/assets/locale"),
         }
     }
 }

@@ -1,36 +1,78 @@
 use super::typedkey_lsp::TypedKeyLspImpl;
-use rayon::prelude::*;
+use futures::future::join_all;
 use serde_json::Value;
-use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::fs;
+use tokio::sync::Mutex;
 use tower_lsp::lsp_types::MessageType;
 use walkdir::WalkDir;
 
 impl TypedKeyLspImpl {
     pub(crate) async fn load_translations(&self) -> std::io::Result<()> {
+        let config = self.config.read().await;
+        let translations_dir = &config.translations_dir;
+
         self.client
             .log_message(
                 MessageType::INFO,
-                format!(
-                    "Loading translations from debug {} ",
-                    self.config.translations_dir
-                ),
+                format!("Loading translations from {}", translations_dir),
             )
             .await;
 
-        let translation_files: Vec<_> = WalkDir::new(&self.config.translations_dir)
+        // Collect all JSON translation files
+        let translation_files: Vec<PathBuf> = WalkDir::new(translations_dir)
             .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "json"))
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .map_or(false, |ext| ext.eq_ignore_ascii_case("json"))
+            })
+            .map(|entry| entry.into_path())
             .collect();
 
-        translation_files.par_iter().for_each(|entry| {
-            if let Ok(keys) = process_file(entry.path()) {
-                for (key, value) in keys {
-                    self.translation_keys.insert(key, value);
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Found {} translation files", translation_files.len()),
+            )
+            .await;
+
+        // Shared collection for all keys
+        let all_keys = Arc::new(Mutex::new(Vec::new()));
+
+        // Process files asynchronously
+        let tasks: Vec<_> = translation_files
+            .into_iter()
+            .map(|path| {
+                let all_keys = all_keys.clone();
+                async move {
+                    match process_file_async(&path).await {
+                        Ok(keys) => {
+                            let mut all_keys = all_keys.lock().await;
+                            all_keys.extend(keys);
+                        }
+                        Err(e) => {
+                            eprintln!("Error processing file {:?}: {}", path, e);
+                        }
+                    }
                 }
-            }
-        });
+            })
+            .collect();
+
+        // Await all tasks concurrently
+        join_all(tasks).await;
+
+        // Insert all keys into translation_keys
+        let all_keys = Arc::try_unwrap(all_keys)
+            .unwrap_or_else(|_| panic!("Arc has more than one strong reference"))
+            .into_inner();
+
+        for (key, value) in all_keys {
+            self.translation_keys.insert(key, value);
+        }
 
         self.client
             .log_message(
@@ -43,35 +85,38 @@ impl TypedKeyLspImpl {
     }
 }
 
-fn process_file(path: &Path) -> std::io::Result<Vec<(String, Value)>> {
-    let content = fs::read_to_string(path)?;
-    let json: Value = serde_json::from_str(&content)?;
-    let mut keys = Vec::new();
-    extract_keys(&json, String::new(), &mut keys);
+async fn process_file_async(path: &Path) -> std::io::Result<Vec<(String, Value)>> {
+    let content = fs::read_to_string(path).await?;
+    let json: Value = serde_json::from_str(&content).map_err(|e| {
+        eprintln!("Error parsing JSON in file {:?}: {}", path, e);
+        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+    })?;
+    let keys = extract_keys(&json, String::new());
     Ok(keys)
 }
 
-fn extract_keys(value: &Value, prefix: String, keys: &mut Vec<(String, Value)>) {
+fn extract_keys(value: &Value, prefix: String) -> Vec<(String, Value)> {
     match value {
-        Value::Object(map) => {
-            for (key, val) in map {
+        Value::Object(map) => map
+            .iter()
+            .flat_map(|(key, val)| {
                 let new_prefix = if prefix.is_empty() {
-                    key.to_string()
+                    key.clone()
                 } else {
                     format!("{}.{}", prefix, key)
                 };
-                extract_keys(val, new_prefix, keys);
-            }
-        }
-        Value::Array(arr) => {
-            for (index, val) in arr.iter().enumerate() {
+                extract_keys(val, new_prefix)
+            })
+            .collect(),
+        Value::Array(arr) => arr
+            .iter()
+            .enumerate()
+            .flat_map(|(index, val)| {
                 let new_prefix = format!("{}[{}]", prefix, index);
-                extract_keys(val, new_prefix, keys);
-            }
-        }
-        _ => {
-            keys.push((prefix, value.clone()));
-        }
+                extract_keys(val, new_prefix)
+            })
+            .collect(),
+        _ => vec![(prefix, value.clone())],
     }
 }
 
