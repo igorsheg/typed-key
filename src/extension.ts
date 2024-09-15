@@ -103,6 +103,7 @@ async function createClient(
       { scheme: 'file', pattern: '**' },
       { scheme: 'vscode-scm' },
     ],
+    initializationOptions: config,
     outputChannel,
     traceOutputChannel: outputChannel,
     synchronize: {
@@ -138,9 +139,7 @@ async function updateConfiguration(client: LanguageClient, uri: Uri): Promise<vo
         lastConfiguredPath = fullResourcePath
 
         const settings = {
-          typedkey: {
-            translationsDir: fullResourcePath,
-          },
+          translationsDir: fullResourcePath,
         }
 
         await client.sendNotification(DidChangeConfigurationNotification.type, {

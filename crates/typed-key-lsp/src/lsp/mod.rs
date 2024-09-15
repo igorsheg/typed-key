@@ -1,6 +1,7 @@
 pub(crate) mod action;
 pub(crate) mod ast;
 pub mod backend;
+pub(crate) mod channels;
 pub(crate) mod completion;
 pub(crate) mod config;
 pub(crate) mod diagnostics;

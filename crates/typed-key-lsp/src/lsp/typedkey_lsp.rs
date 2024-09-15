@@ -56,7 +56,7 @@ impl TypedKeyLspImpl {
             )
             .await;
 
-        let _ = self.load_translations().await;
+        // let _ = self.load_translations().await;
     }
 
     pub(crate) async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -88,14 +88,14 @@ impl TypedKeyLspImpl {
                         .log_message(MessageType::INFO, "Configuration updated")
                         .await;
                     // Reload translations
-                    if let Err(e) = self.load_translations().await {
-                        self.client
-                            .log_message(
-                                MessageType::ERROR,
-                                format!("Failed to reload translations: {}", e),
-                            )
-                            .await;
-                    }
+                    // if let Err(e) = self.load_translations().await {
+                    //     self.client
+                    //         .log_message(
+                    //             MessageType::ERROR,
+                    //             format!("Failed to reload translations: {}", e),
+                    //         )
+                    //         .await;
+                    // }
                 } else {
                     self.client
                         .log_message(MessageType::ERROR, "Failed to parse new configuration")

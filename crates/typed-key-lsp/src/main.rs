@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use tower_lsp::{LspService, Server};
 use typed_key::generate::TypeScriptGenerator;
-use typed_key::lsp::backend::TypedKeyLsp;
+use typed_key::lsp::backend::Backend;
 use typed_key::{Lexer as TypedKeyLexer, Parser as TypedKeyParser};
 
 #[derive(Parser, Debug)]
@@ -111,7 +111,7 @@ async fn start_lsp() -> Result<()> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(TypedKeyLsp::new);
+    let (service, socket) = LspService::build(Backend::_new).finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;
     Ok(())

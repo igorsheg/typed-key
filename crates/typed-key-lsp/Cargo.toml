@@ -19,6 +19,7 @@ clap = { version = "4.5.16", features = ["derive"] }
 dashmap = "6.0.1"
 futures = "0.3.30"
 miette = { version = "7.2.0" }
+ropey = "1.6.1"
 serde = { version = "1.0.209", features = ["derive"] }
 serde_json = "1.0.127"
 tokio = { version = "1.40.0", features = [ "rt-multi-thread",

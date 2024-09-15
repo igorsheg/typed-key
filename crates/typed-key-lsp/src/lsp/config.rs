@@ -1,15 +1,9 @@
-use serde::Deserialize;
+use std::path::PathBuf;
 
-#[derive(Clone, Debug, Default, Deserialize)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BackendConfig {
-    pub translations_dir: String,
-}
-
-impl BackendConfig {
-    pub fn default() -> Self {
-        Self {
-            translations_dir: String::from("src/assets/locale"),
-        }
-    }
+    pub translations_dir: PathBuf,
 }
