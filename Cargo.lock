@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "typed-key"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "clap",
  "dashmap 6.1.0",
