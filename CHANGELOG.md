@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.17](https://github.com/igorsheg/typed-key/compare/v0.0.16...v0.0.17) (2024-09-15)
+
+
+### Chores
+
+* **repo:** bump ver ([92c2eff](https://github.com/igorsheg/typed-key/commit/92c2eff9a89505c7addc471f882ae3be7f8df182))
+
 ## [0.0.16](https://github.com/igorsheg/typed-key/compare/v0.0.15...v0.0.16) (2024-09-14)
 
 
