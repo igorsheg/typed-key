@@ -4,7 +4,7 @@ use tower_lsp::lsp_types::{
     Position, Range, TextEdit, WorkspaceEdit,
 };
 
-use super::diagnostics::MissingVariableDiagnosticData;
+use super::channels::diagnostics::MissingVariableDiagnosticData;
 
 pub(crate) async fn handle_code_action(
     params: CodeActionParams,

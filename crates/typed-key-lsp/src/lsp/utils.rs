@@ -1,16 +1,7 @@
-use tower_lsp::lsp_types::Position;
+use tower_lsp::lsp_types::{Position, Range};
 use tree_sitter::Node;
 
 use crate::parse::AstNode;
-
-pub(crate) fn position_to_index(content: &str, position: Position) -> usize {
-    content
-        .lines()
-        .take(position.line as usize)
-        .map(|line| line.len() + 1)
-        .sum::<usize>()
-        + position.character as usize
-}
 
 pub(crate) fn traverse_nodes(node: Node<'_>) -> Vec<Node<'_>> {
     let mut nodes = vec![node];
@@ -68,5 +59,17 @@ pub(crate) fn get_select_options(ast: &AstNode, var_name: &str) -> Option<Vec<St
             Some(options.keys().cloned().collect())
         }
         _ => None,
+    }
+}
+pub fn node_to_range(node: Node) -> Range {
+    Range {
+        start: Position {
+            line: node.start_position().row as u32,
+            character: node.start_position().column as u32,
+        },
+        end: Position {
+            line: node.end_position().row as u32,
+            character: node.end_position().column as u32,
+        },
     }
 }

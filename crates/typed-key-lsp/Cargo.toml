@@ -16,7 +16,6 @@ opt-level = 3
 
 [dependencies]
 clap = { version = "4.5.16", features = ["derive"] }
-dashmap = "6.0.1"
 futures = "0.3.30"
 miette = { version = "7.2.0" }
 ropey = "1.5.0"
@@ -29,7 +28,7 @@ tokio = { version = "1.40.0", features = [ "rt-multi-thread",
     "time",
     "sync",
     "macros"] }
-tower-lsp = "0.20.0"
+tower-lsp =  { version = "0.20.0", features = ["proposed"] } 
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tree-sitter = "0.23.0"

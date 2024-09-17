@@ -6,8 +6,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp::lsp_types::DidOpenTextDocumentParams;
-use tower_lsp::lsp_types::DidSaveTextDocumentParams;
-use tower_lsp::lsp_types::TextDocumentIdentifier;
+use tower_lsp::lsp_types::Url;
 use walkdir::WalkDir;
 
 use super::channels::lsp::LspMessage;
@@ -149,5 +148,23 @@ fn extract_keys(value: &Value, prefix: String) -> Vec<(String, Value)> {
             })
             .collect(),
         _ => vec![(prefix, value.clone())],
+    }
+}
+
+pub fn find_workspace_package(uri: &Url) -> Option<PathBuf> {
+    let path = uri.to_file_path().ok()?;
+    let mut current_dir = path.parent()?;
+
+    loop {
+        let package_json_path = current_dir.join("package.json");
+        if package_json_path.exists() {
+            return Some(current_dir.to_path_buf());
+        }
+
+        if let Some(parent) = current_dir.parent() {
+            current_dir = parent;
+        } else {
+            return None;
+        }
     }
 }

@@ -1,19 +1,22 @@
 use std::collections::HashMap;
 
+use ropey::Rope;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Receiver;
 use tower_lsp::{
-    lsp_types::{Diagnostic, DiagnosticSeverity, MessageType, Position, Range, Url},
+    lsp_types::{Diagnostic, DiagnosticSeverity, Url},
     Client,
 };
 use tree_sitter::Node;
 
-use crate::lsp::{ast::extract_variables_and_options, utils::traverse_nodes};
+use crate::lsp::{
+    ast::extract_variables_and_options,
+    utils::{node_to_range, traverse_nodes},
+};
 
 #[derive(Debug)]
 pub enum DiagnosticMessage {
-    PublishDiagnostics(Url, Vec<Diagnostic>),
-    Str(String),
+    Errors(Url, Vec<Diagnostic>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -26,10 +29,7 @@ pub fn diagnostics_task(client: Client, mut receiver: Receiver<DiagnosticMessage
     tokio::spawn(async move {
         while let Some(msg) = receiver.recv().await {
             match msg {
-                DiagnosticMessage::Str(msg) => {
-                    client.log_message(MessageType::INFO, msg).await;
-                }
-                DiagnosticMessage::PublishDiagnostics(uri, diagnostics) => {
+                DiagnosticMessage::Errors(uri, diagnostics) => {
                     client.publish_diagnostics(uri, diagnostics, None).await;
                 }
             }
@@ -38,7 +38,7 @@ pub fn diagnostics_task(client: Client, mut receiver: Receiver<DiagnosticMessage
 }
 
 pub fn generate_diagnostics(
-    content: &str,
+    content: &Rope,
     translation_keys: &HashMap<String, serde_json::Value>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -48,7 +48,8 @@ pub fn generate_diagnostics(
         .set_language(&tree_sitter_typescript::language_typescript())
         .expect("Failed to load TypeScript grammar");
 
-    let tree = match parser.parse(content, None) {
+    let content_string = content.to_string();
+    let tree = match parser.parse(&content_string, None) {
         Some(tree) => tree,
         None => return diagnostics,
     };
@@ -58,10 +59,10 @@ pub fn generate_diagnostics(
     for node in traverse_nodes(root_node) {
         if node.kind() == "call_expression" {
             if let Some(func_node) = node.child_by_field_name("function") {
-                let func_name = func_node.utf8_text(content.as_bytes()).unwrap_or("");
+                let func_name = func_node.utf8_text(content_string.as_bytes()).unwrap_or("");
                 if func_name == "t" {
                     if let Some(diagnostics_for_node) =
-                        check_t_function_call(content, node, translation_keys)
+                        check_t_function_call(&content_string, node, translation_keys)
                     {
                         diagnostics.extend(diagnostics_for_node);
                     }
@@ -95,7 +96,7 @@ fn check_t_function_call<'a>(
 
                 for var in required_vars.iter() {
                     if !provided_vars.contains(var) {
-                        let range = node_to_range(*key_node);
+                        let range = node_to_range(key_node.to_owned());
                         let diagnostic_data = MissingVariableDiagnosticData {
                             key: key.to_string(),
                             missing_variable: var.to_string(),
@@ -146,17 +147,4 @@ fn extract_provided_variables(content: &str, options_node: Option<&Node<'_>>) ->
     }
 
     provided_vars
-}
-
-fn node_to_range(node: Node) -> Range {
-    Range {
-        start: Position {
-            line: node.start_position().row as u32,
-            character: node.start_position().column as u32,
-        },
-        end: Position {
-            line: node.end_position().row as u32,
-            character: node.end_position().column as u32,
-        },
-    }
 }

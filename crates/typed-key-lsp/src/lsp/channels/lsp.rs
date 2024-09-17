@@ -3,17 +3,20 @@ use tower_lsp::{
     lsp_types::{
         CodeActionParams, CodeActionProviderCapability, CodeActionResponse, CompletionOptions,
         CompletionParams, CompletionResponse, DidChangeConfigurationParams,
-        DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-        DidSaveTextDocumentParams, ExecuteCommandOptions, Hover, HoverParams,
-        HoverProviderCapability, InitializeParams, InitializeResult, MessageType, OneOf,
-        ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
+        DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+        ExecuteCommandOptions, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+        InitializeResult, MessageType, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+        TextDocumentSyncKind,
     },
     Client,
 };
 
 use crate::lsp::{
-    action::handle_code_action, completion::handle_completion, config::BackendConfig,
-    fs::TypedKeyTranslations, hover::hover,
+    action::handle_code_action,
+    completion::handle_completion,
+    config::BackendConfig,
+    fs::{find_workspace_package, TypedKeyTranslations},
+    hover::hover,
 };
 
 use super::diagnostics::{generate_diagnostics, DiagnosticMessage};
@@ -25,7 +28,6 @@ pub enum LspMessage {
     DidOpen(DidOpenTextDocumentParams),
     DidChange(DidChangeTextDocumentParams),
     DidSave(DidSaveTextDocumentParams),
-    DidClose(DidCloseTextDocumentParams),
     Completion(
         CompletionParams,
         oneshot::Sender<Option<CompletionResponse>>,
@@ -64,8 +66,6 @@ pub fn lsp_task(
                             None
                         });
 
-                    let definition_provider = Some(OneOf::Left(true));
-                    let references_provider = None;
                     let code_action_provider = Some(CodeActionProviderCapability::Simple(true));
                     let hover_provider = Some(HoverProviderCapability::Simple(true));
                     let execute_command_provider = Some(ExecuteCommandOptions {
@@ -93,8 +93,6 @@ pub fn lsp_task(
                                 work_done_progress_options: Default::default(),
                                 completion_item: None,
                             }),
-                            definition_provider,
-                            references_provider,
                             code_action_provider,
                             execute_command_provider,
                             hover_provider,
@@ -104,12 +102,20 @@ pub fn lsp_task(
                             name: String::from("typedkey-lsp"),
                             version: Some(String::from("0.1.80")),
                         }),
+                        offset_encoding: None,
                     };
                     let _ = sender.send(msg);
                 }
                 LspMessage::Initialized(sender) => {
-                    client.log_message(MessageType::INFO, "Initialized").await;
-                    lsp_data.config = config.clone();
+                    client
+                        .log_message(
+                            MessageType::INFO,
+                            format!(
+                                "Initialized {:?}",
+                                lsp_data.config.translations_dir.as_path().to_str()
+                            ),
+                        )
+                        .await;
                     let _ = lsp_data.load_translations();
                     let _ = sender.send(true);
                 }
@@ -126,15 +132,20 @@ pub fn lsp_task(
                 LspMessage::DidSave(params) => {
                     let uri = params.text_document.uri;
                     if let Some(rope) = lsp_data.documents.get(uri.as_str()) {
-                        let document = rope.to_string();
                         let diagnostics =
-                            generate_diagnostics(&document, lsp_data.get_translation_keys());
+                            generate_diagnostics(&rope, lsp_data.get_translation_keys());
                         let _ = diagnostics_channel
-                            .send(DiagnosticMessage::PublishDiagnostics(uri, diagnostics))
+                            .send(DiagnosticMessage::Errors(uri, diagnostics))
                             .await;
                     }
                 }
                 LspMessage::DidOpen(params) => {
+                    let (sender, _) = oneshot::channel();
+                    if let Some(package) = find_workspace_package(&params.text_document.uri) {
+                        lsp_data.config.translations_dir = package.join(&config.translations_dir);
+                        let _ = lsp_channel.send(LspMessage::Initialized(sender)).await;
+                    }
+
                     let _ = lsp_data.did_open(params);
                 }
                 LspMessage::Completion(params, sender) => {
@@ -175,7 +186,6 @@ pub fn lsp_task(
                         let _ = sender.send(completion_items);
                     };
                 }
-                _ => {}
             }
         }
     });
