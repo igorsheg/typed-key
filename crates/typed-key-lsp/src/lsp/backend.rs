@@ -4,6 +4,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+use super::channels::diagnostics::diagnostics_task;
 use super::channels::lsp::{lsp_task, LspMessage};
 
 pub struct Backend {
@@ -53,6 +54,9 @@ impl LanguageServer for Backend {
         let _ = self.main_channel.send(LspMessage::DidOpen(params)).await;
     }
 
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let _ = self.main_channel.send(LspMessage::DidSave(params)).await;
+    }
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let (sender, tx) = oneshot::channel();
         let _ = self
@@ -91,7 +95,14 @@ impl LanguageServer for Backend {
 impl Backend {
     pub fn _new(client: Client) -> Self {
         let (lsp_sender, lsp_recv) = mpsc::channel(50);
-        lsp_task(client.clone(), lsp_sender.clone(), lsp_recv);
+        let (diagnostic_sender, diagnostic_recv) = mpsc::channel(20);
+        lsp_task(
+            client.clone(),
+            diagnostic_sender,
+            lsp_sender.clone(),
+            lsp_recv,
+        );
+        diagnostics_task(client.clone(), diagnostic_recv);
         Self {
             main_channel: lsp_sender,
         }

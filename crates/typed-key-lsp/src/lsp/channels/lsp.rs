@@ -16,6 +16,8 @@ use crate::lsp::{
     fs::TypedKeyTranslations, hover::hover,
 };
 
+use super::diagnostics::{generate_diagnostics, DiagnosticMessage};
+
 #[derive(Debug)]
 pub enum LspMessage {
     Initialize(Box<InitializeParams>, oneshot::Sender<InitializeResult>),
@@ -38,6 +40,7 @@ pub enum LspMessage {
 
 pub fn lsp_task(
     client: Client,
+    diagnostics_channel: mpsc::Sender<DiagnosticMessage>,
     lsp_channel: mpsc::Sender<LspMessage>,
     mut lsp_recv: mpsc::Receiver<LspMessage>,
 ) {
@@ -119,6 +122,17 @@ pub fn lsp_task(
                 }
                 LspMessage::DidChange(params) => {
                     let _ = lsp_data.did_change(params);
+                }
+                LspMessage::DidSave(params) => {
+                    let uri = params.text_document.uri;
+                    if let Some(rope) = lsp_data.documents.get(uri.as_str()) {
+                        let document = rope.to_string();
+                        let diagnostics =
+                            generate_diagnostics(&document, lsp_data.get_translation_keys());
+                        let _ = diagnostics_channel
+                            .send(DiagnosticMessage::PublishDiagnostics(uri, diagnostics))
+                            .await;
+                    }
                 }
                 LspMessage::DidOpen(params) => {
                     let _ = lsp_data.did_open(params);
