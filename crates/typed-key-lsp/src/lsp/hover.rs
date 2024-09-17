@@ -1,3 +1,4 @@
+use super::ast::extract_variables_and_options;
 use super::docs::TypedKeyDocs;
 use super::position::CursorPosition;
 use super::typedkey_lsp::TypedKeyLspImpl;
@@ -38,7 +39,7 @@ impl TypedKeyLspImpl {
     ) -> Result<Option<Hover>> {
         if let Some(entry) = self.translation_keys.get(key) {
             let value = entry.value();
-            let (variables, select_options) = self.extract_variables_and_options(value);
+            let (variables, select_options) = extract_variables_and_options(value);
             let documentation =
                 self.format_hover_documentation(key, value, &variables, &select_options);
 

@@ -3,23 +3,18 @@ use serde_json::Value;
 use crate::parse;
 use crate::parse::AstNode;
 
-use super::typedkey_lsp::TypedKeyLspImpl;
-
-impl TypedKeyLspImpl {
-    pub(crate) fn extract_variables_and_options(
-        &self,
-        value: &Value,
-    ) -> (Vec<String>, std::collections::HashMap<String, Vec<String>>) {
-        if let Value::String(s) = value {
-            let parser = parse::Parser::new(s);
-            if let Ok(ast) = parser.parse() {
-                collect_variables_and_options(&ast)
-            } else {
-                (Vec::new(), std::collections::HashMap::new())
-            }
+pub(crate) fn extract_variables_and_options(
+    value: &Value,
+) -> (Vec<String>, std::collections::HashMap<String, Vec<String>>) {
+    if let Value::String(s) = value {
+        let parser = parse::Parser::new(s);
+        if let Ok(ast) = parser.parse() {
+            collect_variables_and_options(&ast)
         } else {
             (Vec::new(), std::collections::HashMap::new())
         }
+    } else {
+        (Vec::new(), std::collections::HashMap::new())
     }
 }
 

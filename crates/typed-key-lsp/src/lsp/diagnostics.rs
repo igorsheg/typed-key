@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
-use super::{typedkey_lsp::TypedKeyLspImpl, utils::traverse_nodes};
+use super::{
+    ast::extract_variables_and_options, typedkey_lsp::TypedKeyLspImpl, utils::traverse_nodes,
+};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct MissingVariableDiagnosticData {
@@ -84,7 +86,7 @@ impl TypedKeyLspImpl {
 
                 if let Some(translation_value) = self.translation_keys.get(key) {
                     let value = translation_value.value();
-                    let (required_vars, _) = self.extract_variables_and_options(value);
+                    let (required_vars, _) = extract_variables_and_options(value);
                     let provided_vars = self.extract_provided_variables(content, arg_nodes.get(1));
 
                     for var in required_vars.iter() {

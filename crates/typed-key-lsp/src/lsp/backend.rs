@@ -47,6 +47,25 @@ impl LanguageServer for Backend {
             .send(LspMessage::DidChangeConfiguration(Box::new(params)))
             .await;
     }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let _ = self.main_channel.send(LspMessage::DidChange(params)).await;
+    }
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let _ = self.main_channel.send(LspMessage::DidOpen(params)).await;
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let (sender, tx) = oneshot::channel();
+        let _ = self
+            .main_channel
+            .send(LspMessage::Completion(params, sender))
+            .await;
+        if let Ok(completion) = tx.await {
+            return Ok(completion);
+        }
+        Ok(None)
+    }
 }
 
 impl Backend {

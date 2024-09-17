@@ -4,6 +4,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use tower_lsp::lsp_types::DidChangeTextDocumentParams;
+use tower_lsp::lsp_types::DidOpenTextDocumentParams;
+use tower_lsp::lsp_types::DidSaveTextDocumentParams;
+use tower_lsp::lsp_types::TextDocumentIdentifier;
 use walkdir::WalkDir;
 
 use super::channels::lsp::LspMessage;
@@ -13,7 +17,7 @@ pub struct TypedKeyTranslations {
     translation_keys: HashMap<String, Value>,
     pub config: BackendConfig,
     main_channel: Option<std::sync::mpsc::Sender<LspMessage>>,
-    document: Rope,
+    pub documents: HashMap<String, Rope>,
     pub is_vscode: bool,
 }
 
@@ -23,7 +27,7 @@ impl Clone for TypedKeyTranslations {
             translation_keys: self.translation_keys.clone(),
             config: self.config.clone(),
             main_channel: self.main_channel.clone(),
-            document: self.document.clone(),
+            documents: HashMap::new(),
             is_vscode: self.is_vscode,
         }
     }
@@ -35,7 +39,7 @@ impl TypedKeyTranslations {
             translation_keys: HashMap::new(),
             config: BackendConfig::default(),
             main_channel: None,
-            document: Rope::new(),
+            documents: HashMap::new(),
             is_vscode: false,
         }
     }
@@ -78,6 +82,37 @@ impl TypedKeyTranslations {
     pub fn get_translation_keys(&self) -> &HashMap<String, Value> {
         &self.translation_keys
     }
+
+    pub fn did_open(&mut self, params: DidOpenTextDocumentParams) {
+        let name = params.text_document.uri.as_str();
+        let file_content = params.text_document.text;
+        let rope = Rope::from_str(&file_content);
+        self.documents.insert(name.to_string(), rope);
+    }
+
+    pub fn did_change(&mut self, params: DidChangeTextDocumentParams) -> Option<()> {
+        let uri = params.text_document.uri.to_string();
+        let rope = self.documents.get_mut(&uri)?;
+
+        for change in params.content_changes {
+            match change.range {
+                Some(range) => {
+                    let start_char = rope.line_to_char(range.start.line as usize)
+                        + range.start.character as usize;
+                    let end_char =
+                        rope.line_to_char(range.end.line as usize) + range.end.character as usize;
+
+                    rope.remove(start_char..end_char);
+
+                    rope.insert(start_char, &change.text);
+                }
+                None => {
+                    *rope = Rope::from_str(&change.text);
+                }
+            }
+        }
+        Some(())
+    }
 }
 
 fn process_file(path: &Path) -> io::Result<Vec<(String, Value)>> {
@@ -116,4 +151,3 @@ fn extract_keys(value: &Value, prefix: String) -> Vec<(String, Value)> {
         _ => vec![(prefix, value.clone())],
     }
 }
-

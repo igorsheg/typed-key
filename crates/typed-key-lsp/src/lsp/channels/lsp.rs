@@ -14,7 +14,7 @@ use tower_lsp::{
     Client,
 };
 
-use crate::lsp::{config::BackendConfig, fs::TypedKeyTranslations};
+use crate::lsp::{completion::handle_completion, config::BackendConfig, fs::TypedKeyTranslations};
 
 #[derive(Debug)]
 pub enum LspMessage {
@@ -74,22 +74,19 @@ pub fn lsp_task(
 
                     let msg = InitializeResult {
                         capabilities: ServerCapabilities {
-                            text_document_sync: Some(TextDocumentSyncCapability::Options(
-                                TextDocumentSyncOptions {
-                                    change: Some(TextDocumentSyncKind::INCREMENTAL),
-                                    will_save: Some(true),
-                                    save: Some(TextDocumentSyncSaveOptions::Supported(true)),
-                                    ..Default::default()
-                                },
+                            text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                                TextDocumentSyncKind::INCREMENTAL,
                             )),
                             completion_provider: Some(CompletionOptions {
                                 resolve_provider: Some(false),
                                 trigger_characters: Some(vec![
-                                    "-".to_string(),
-                                    "\"".to_string(),
-                                    " ".to_string(),
-                                    "%".to_string(),
+                                    "(".to_string(),
+                                    ",".to_string(),
                                     "{".to_string(),
+                                    "\"".to_string(),
+                                    "'".to_string(),
+                                    "`".to_string(),
+                                    ":".to_string(),
                                 ]),
                                 all_commit_characters: None,
                                 work_done_progress_options: Default::default(),
@@ -172,7 +169,38 @@ pub fn lsp_task(
                                 .await;
                         }
                     }
-                    // if let Ok(c) = serde_json::from_value(params.settings) {}
+                }
+                LspMessage::DidChange(params) => {
+                    let _ = lsp_data.did_change(params);
+                }
+                LspMessage::DidOpen(params) => {
+                    let _ = lsp_data.did_open(params);
+                }
+                LspMessage::Completion(params, sender) => {
+                    let uri = params.text_document_position.text_document.uri.clone();
+                    if let Some(rope) = lsp_data.documents.get(uri.as_str()) {
+                        client
+                            .log_message(
+                                MessageType::ERROR,
+                                format!(
+                                    "DOC and get_translation_keys {:?} {:?} ",
+                                    rope,
+                                    lsp_data.get_translation_keys()
+                                ),
+                            )
+                            .await;
+
+                        match handle_completion(params, &rope, lsp_data.get_translation_keys())
+                            .await
+                        {
+                            Ok(completion) => {
+                                let _ = sender.send(completion);
+                            }
+                            Err(_) => {
+                                let _ = sender.send(None);
+                            }
+                        }
+                    };
                 }
                 _ => {}
             }
