@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use tokio::sync::{mpsc, oneshot};
 use tower_lsp::{
     lsp_types::{
@@ -7,20 +5,21 @@ use tower_lsp::{
         CompletionParams, CompletionResponse, DidChangeConfigurationParams,
         DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
         DidSaveTextDocumentParams, ExecuteCommandOptions, Hover, HoverParams,
-        HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-        MessageType, OneOf, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
-        TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions,
+        HoverProviderCapability, InitializeParams, InitializeResult, MessageType, OneOf,
+        ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
     },
     Client,
 };
 
-use crate::lsp::{completion::handle_completion, config::BackendConfig, fs::TypedKeyTranslations};
+use crate::lsp::{
+    action::handle_code_action, completion::handle_completion, config::BackendConfig,
+    fs::TypedKeyTranslations, hover::hover,
+};
 
 #[derive(Debug)]
 pub enum LspMessage {
     Initialize(Box<InitializeParams>, oneshot::Sender<InitializeResult>),
     Initialized(oneshot::Sender<bool>),
-    Shutdown(oneshot::Sender<()>),
     DidOpen(DidOpenTextDocumentParams),
     DidChange(DidChangeTextDocumentParams),
     DidSave(DidSaveTextDocumentParams),
@@ -30,7 +29,7 @@ pub enum LspMessage {
         oneshot::Sender<Option<CompletionResponse>>,
     ),
     Hover(HoverParams, oneshot::Sender<Option<Hover>>),
-    DidChangeConfiguration(Box<DidChangeConfigurationParams>),
+    DidChangeConfiguration(DidChangeConfigurationParams),
     CodeAction(
         CodeActionParams,
         oneshot::Sender<Option<CodeActionResponse>>,
@@ -64,13 +63,12 @@ pub fn lsp_task(
 
                     let definition_provider = Some(OneOf::Left(true));
                     let references_provider = None;
-                    // let code_action_provider = Some(CodeActionProviderCapability::Simple(true));
+                    let code_action_provider = Some(CodeActionProviderCapability::Simple(true));
                     let hover_provider = Some(HoverProviderCapability::Simple(true));
                     let execute_command_provider = Some(ExecuteCommandOptions {
                         commands: vec!["reset_variables".to_string(), "warn".to_string()],
                         ..Default::default()
                     });
-                    // let document_symbol_provider = Some(OneOf::Left(true));
 
                     let msg = InitializeResult {
                         capabilities: ServerCapabilities {
@@ -94,10 +92,9 @@ pub fn lsp_task(
                             }),
                             definition_provider,
                             references_provider,
-                            // code_action_provider,
+                            code_action_provider,
                             execute_command_provider,
-                            // document_symbol_provider,
-                            // hover_provider,
+                            hover_provider,
                             ..ServerCapabilities::default()
                         },
                         server_info: Some(ServerInfo {
@@ -109,65 +106,15 @@ pub fn lsp_task(
                 }
                 LspMessage::Initialized(sender) => {
                     client.log_message(MessageType::INFO, "Initialized").await;
-
-                    client
-                        .log_message(
-                            MessageType::INFO,
-                            format!("CONFIG 2! {:?} ", config.clone()),
-                        )
-                        .await;
                     lsp_data.config = config.clone();
-
-                    match lsp_data.load_translations() {
-                        Ok(_) => {
-                            client
-                                .log_message(
-                                    MessageType::INFO,
-                                    format!(
-                                        "Loaded {} translation keys",
-                                        lsp_data.get_translation_keys().len()
-                                    ),
-                                )
-                                .await;
-                        }
-                        Err(e) => {
-                            client
-                                .log_message(
-                                    MessageType::ERROR,
-                                    format!("Failed to load translations: {}", e),
-                                )
-                                .await;
-                        }
-                    }
-
+                    let _ = lsp_data.load_translations();
                     let _ = sender.send(true);
                 }
                 LspMessage::DidChangeConfiguration(params) => {
                     let (sender, _) = oneshot::channel();
-
-                    client
-                        .log_message(
-                            MessageType::INFO,
-                            format!("CONFIG as params! {:?} ", params.settings),
-                        )
-                        .await;
-
-                    match serde_json::from_value(params.settings) {
-                        Ok(c) => {
-                            client
-                                .log_message(MessageType::INFO, format!("CONFIG! {:?} ", c))
-                                .await;
-                            config = c;
-                            let _ = lsp_channel.send(LspMessage::Initialized(sender)).await;
-                        }
-                        Err(err) => {
-                            client
-                                .log_message(
-                                    MessageType::ERROR,
-                                    format!("Failed at der! {:?} ", err),
-                                )
-                                .await;
-                        }
+                    if let Ok(c) = serde_json::from_value(params.settings) {
+                        config = c;
+                        let _ = lsp_channel.send(LspMessage::Initialized(sender)).await;
                     }
                 }
                 LspMessage::DidChange(params) => {
@@ -177,29 +124,41 @@ pub fn lsp_task(
                     let _ = lsp_data.did_open(params);
                 }
                 LspMessage::Completion(params, sender) => {
+                    let mut completion_items = None;
                     let uri = params.text_document_position.text_document.uri.clone();
                     if let Some(rope) = lsp_data.documents.get(uri.as_str()) {
-                        client
-                            .log_message(
-                                MessageType::ERROR,
-                                format!(
-                                    "DOC and get_translation_keys {:?} {:?} ",
-                                    rope,
-                                    lsp_data.get_translation_keys()
-                                ),
-                            )
-                            .await;
-
-                        match handle_completion(params, &rope, lsp_data.get_translation_keys())
-                            .await
+                        if let Ok(completion) =
+                            handle_completion(params, &rope, lsp_data.get_translation_keys()).await
                         {
-                            Ok(completion) => {
-                                let _ = sender.send(completion);
-                            }
-                            Err(_) => {
-                                let _ = sender.send(None);
-                            }
+                            completion_items = completion
                         }
+                        let _ = sender.send(completion_items);
+                    };
+                }
+                LspMessage::Hover(params, sender) => {
+                    let mut completion_items = None;
+                    let uri = params
+                        .text_document_position_params
+                        .text_document
+                        .uri
+                        .clone();
+                    if let Some(rope) = lsp_data.documents.get(uri.as_str()) {
+                        if let Ok(completion) =
+                            hover(params, &rope, lsp_data.get_translation_keys()).await
+                        {
+                            completion_items = completion
+                        }
+                        let _ = sender.send(completion_items);
+                    };
+                }
+                LspMessage::CodeAction(params, sender) => {
+                    let mut completion_items = None;
+                    let uri = params.text_document.uri.clone();
+                    if let Some(rope) = lsp_data.documents.get(uri.as_str()) {
+                        if let Ok(completion) = handle_code_action(params, &rope).await {
+                            completion_items = completion
+                        }
+                        let _ = sender.send(completion_items);
                     };
                 }
                 _ => {}

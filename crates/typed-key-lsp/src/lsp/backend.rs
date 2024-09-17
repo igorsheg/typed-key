@@ -1,14 +1,10 @@
-use dashmap::DashMap;
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 use tokio::sync::{mpsc::Sender, oneshot};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use super::channels::lsp::{lsp_task, LspMessage};
-use super::config::BackendConfig;
-use super::typedkey_lsp::TypedKeyLspImpl;
 
 pub struct Backend {
     main_channel: Sender<LspMessage>,
@@ -44,9 +40,11 @@ impl LanguageServer for Backend {
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
         let _ = self
             .main_channel
-            .send(LspMessage::DidChangeConfiguration(Box::new(params)))
+            .send(LspMessage::DidChangeConfiguration(params))
             .await;
     }
+
+    async fn did_close(&self, _params: DidCloseTextDocumentParams) {}
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let _ = self.main_channel.send(LspMessage::DidChange(params)).await;
@@ -60,6 +58,28 @@ impl LanguageServer for Backend {
         let _ = self
             .main_channel
             .send(LspMessage::Completion(params, sender))
+            .await;
+        if let Ok(completion) = tx.await {
+            return Ok(completion);
+        }
+        Ok(None)
+    }
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let (sender, tx) = oneshot::channel();
+        let _ = self
+            .main_channel
+            .send(LspMessage::Hover(params, sender))
+            .await;
+        if let Ok(completion) = tx.await {
+            return Ok(completion);
+        }
+        Ok(None)
+    }
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let (sender, tx) = oneshot::channel();
+        let _ = self
+            .main_channel
+            .send(LspMessage::CodeAction(params, sender))
             .await;
         if let Ok(completion) = tx.await {
             return Ok(completion);
