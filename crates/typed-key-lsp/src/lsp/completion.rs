@@ -1,14 +1,19 @@
-use crate::lsp::position::{CursorPosition, SecondParamPosition, TFunctionAnalyzer};
+use crate::lsp::position::SecondParamPosition;
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::lsp::docs::TypedKeyDocs;
 use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
+use tower_lsp::{lsp_types::*, Client};
+use tracing::{debug, error};
+use tree_sitter::{Node, Point, QueryCursor};
+use tree_sitter_typescript::{language_tsx, language_typescript};
 
 use crate::parse::{AstNode, Parser};
 
 use super::ast::extract_variables_and_options;
+use super::queries::Queries;
 use super::utils::{get_select_options, is_select_variable, traverse_ast_for_variables};
 
 pub async fn handle_completion(
@@ -16,21 +21,121 @@ pub async fn handle_completion(
     document: &Rope,
     translation_keys: &HashMap<String, serde_json::Value>,
 ) -> Result<Option<CompletionResponse>> {
+    debug!("Entering handle_completion");
     let position = params.text_document_position.position;
-
     let document_str = document.to_string();
 
-    let t_function_analyzer = TFunctionAnalyzer::new(&document_str, position)?;
-    let cursor_position = t_function_analyzer.analyze();
+    debug!("Document position: {:?}", position);
+    debug!("Document content:\n{}", document_str);
 
-    match cursor_position {
-        CursorPosition::InFirstParam(..) => provide_translation_key_completions(translation_keys),
-        CursorPosition::InSecondParam {
-            translation_key,
-            position,
-        } => provide_second_param_completions(Some(translation_key), position, translation_keys),
-        CursorPosition::OutsideTFunction => Ok(None),
+    let queries = Queries::default();
+
+    // Determine if we're dealing with a .ts or .tsx file
+    let file_path = params.text_document_position.text_document.uri.path();
+    let is_tsx = Path::new(file_path)
+        .extension()
+        .map_or(false, |ext| ext == "tsx");
+
+    let (language, query) = if is_tsx {
+        (language_tsx(), &queries.tsx_t_function)
+    } else {
+        (language_typescript(), &queries.ts_t_function)
+    };
+
+    debug!("File type: {}", if is_tsx { "TSX" } else { "TS" });
+    debug!("Query capture names: {:?}", query.capture_names());
+    debug!("Query pattern count: {}", query.pattern_count());
+
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&language)
+        .expect("Error loading language grammar");
+
+    let tree = parser
+        .parse(&document_str, None)
+        .expect("Failed to parse document");
+
+    let node = tree
+        .root_node()
+        .named_descendant_for_point_range(
+            Point {
+                row: position.line as usize,
+                column: position.character as usize,
+            },
+            Point {
+                row: position.line as usize,
+                column: position.character as usize,
+            },
+        )
+        .expect("Failed to find node at position");
+
+    debug!("Found node at position: {:?}", node.kind());
+    debug!("Node text: {:?}", node.utf8_text(document_str.as_bytes()));
+    debug!(
+        "Node start: {:?}, Node end: {:?}",
+        node.start_position(),
+        node.end_position()
+    );
+
+    let mut query_cursor = QueryCursor::new();
+    let matches = query_cursor.matches(query, tree.root_node(), document_str.as_bytes());
+
+    for match_ in matches {
+        debug!("Match found: {:?}", match_.pattern_index);
+        let mut func_name_node = None;
+        let mut first_arg_node = None;
+        let mut second_arg_node = None;
+
+        for capture in match_.captures {
+            let capture_name = query.capture_names()[capture.index as usize];
+            let capture_text = capture
+                .node
+                .utf8_text(document_str.as_bytes())
+                .unwrap_or("ERROR");
+            debug!("Capture: {} = {:?}", capture_name, capture_text);
+
+            match capture_name {
+                "func_name" => func_name_node = Some(capture.node),
+                "first_arg" => first_arg_node = Some(capture.node),
+                "second_arg" => second_arg_node = Some(capture.node),
+                _ => {}
+            }
+        }
+
+        if let (Some(func), Some(first), _) = (func_name_node, first_arg_node, second_arg_node) {
+            if func.utf8_text(document_str.as_bytes()).unwrap_or("") == "t" {
+                if is_cursor_in_node(first, position) {
+                    debug!("Cursor is in first argument");
+                    return provide_translation_key_completions(translation_keys);
+                } else if let Some(second) = second_arg_node {
+                    if is_cursor_in_node(second, position) {
+                        debug!("Cursor is in second argument");
+                        let key = first
+                            .utf8_text(document_str.as_bytes())
+                            .map(|s| s.trim_matches('"').to_string())
+                            .ok();
+                        return provide_second_param_completions(
+                            key,
+                            SecondParamPosition::InObject,
+                            translation_keys,
+                        );
+                    }
+                }
+            }
+        }
     }
+
+    debug!("No completions provided, returning None");
+    Ok(None)
+}
+
+fn is_cursor_in_node(node: Node, position: Position) -> bool {
+    let start = node.start_position();
+    let end = node.end_position();
+
+    (start.row as u32 <= position.line && position.line <= end.row as u32)
+        && (start.row as u32 != position.line || start.column as u32 <= position.character)
+        && (end.row as u32 != position.line || position.character <= end.column as u32)
 }
 
 fn provide_translation_key_completions(

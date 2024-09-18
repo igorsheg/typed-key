@@ -155,6 +155,12 @@ pub fn lsp_task(
                         if let Ok(completion) =
                             handle_completion(params, &rope, lsp_data.get_translation_keys()).await
                         {
+                            client
+                                .log_message(
+                                    MessageType::INFO,
+                                    format!("Completion {:?}", completion_items),
+                                )
+                                .await;
                             completion_items = completion
                         }
                         let _ = sender.send(completion_items);
