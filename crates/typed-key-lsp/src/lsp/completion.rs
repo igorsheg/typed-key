@@ -17,8 +17,9 @@ pub async fn handle_completion(
     document: &Rope,
     translation_keys: &HashMap<String, serde_json::Value>,
 ) -> Result<Option<CompletionResponse>> {
-    let position = params.text_document_position.position;
     let document_str = document.to_string();
+
+    let position = params.text_document_position.position;
     let file_path = params.text_document_position.text_document.uri.path();
 
     let parser = TFunctionParser::new(&document_str, position, file_path)

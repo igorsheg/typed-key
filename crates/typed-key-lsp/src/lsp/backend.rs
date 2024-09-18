@@ -50,6 +50,7 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let _ = self.main_channel.send(LspMessage::DidChange(params)).await;
     }
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let _ = self.main_channel.send(LspMessage::DidOpen(params)).await;
     }

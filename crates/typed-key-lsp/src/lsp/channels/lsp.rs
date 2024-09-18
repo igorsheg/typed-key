@@ -5,11 +5,13 @@ use tower_lsp::{
         CompletionParams, CompletionResponse, DidChangeConfigurationParams,
         DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
         ExecuteCommandOptions, Hover, HoverParams, HoverProviderCapability, InitializeParams,
-        InitializeResult, MessageType, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
-        TextDocumentSyncKind,
+        InitializeResult, MessageType, OneOf, ServerCapabilities, ServerInfo,
+        TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceFoldersServerCapabilities,
+        WorkspaceServerCapabilities,
     },
     Client,
 };
+use tracing::debug;
 
 use crate::lsp::{
     action::handle_code_action,
@@ -93,6 +95,13 @@ pub fn lsp_task(
                                 work_done_progress_options: Default::default(),
                                 completion_item: None,
                             }),
+                            workspace: Some(WorkspaceServerCapabilities {
+                                workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                                    supported: Some(true),
+                                    change_notifications: Some(OneOf::Left(true)),
+                                }),
+                                file_operations: None,
+                            }),
                             code_action_provider,
                             execute_command_provider,
                             hover_provider,
@@ -142,6 +151,7 @@ pub fn lsp_task(
                 LspMessage::DidOpen(params) => {
                     let (sender, _) = oneshot::channel();
                     if let Some(package) = find_workspace_package(&params.text_document.uri) {
+                        debug!("Using package: {:?}", package.as_path());
                         lsp_data.config.translations_dir = package.join(&config.translations_dir);
                         let _ = lsp_channel.send(LspMessage::Initialized(sender)).await;
                     }

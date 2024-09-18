@@ -172,15 +172,18 @@ impl<'a> TFunctionParser<'a> {
                         return SecondParamPosition::InValue(String::new());
                     }
                     "string" => {
-                        let text = child.utf8_text(self.document.as_bytes()).unwrap_or("");
                         let parent = child.parent().expect("String should have a parent");
+
+                        let key_node = parent.child_by_field_name("key").unwrap();
+                        let key_text = key_node.utf8_text(self.document.as_bytes()).ok();
+
                         if parent.kind() == "pair"
                             && parent.child(0).map_or(false, |n| n.id() == child.id())
                         {
-                            return SecondParamPosition::InKey(text.trim_matches('"').to_string());
+                            return SecondParamPosition::InKey(key_text.unwrap_or("").to_string());
                         } else {
                             return SecondParamPosition::InValue(
-                                text.trim_matches('"').to_string(),
+                                key_text.unwrap_or("").to_string(),
                             );
                         }
                     }
