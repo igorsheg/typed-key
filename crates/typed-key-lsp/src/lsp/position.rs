@@ -1,15 +1,14 @@
-use tower_lsp::jsonrpc::{Error, Result};
+use crate::lsp::queries::Queries;
+use std::path::Path;
 use tower_lsp::lsp_types::*;
-use tree_sitter::{Node, Point};
+use tree_sitter::{Node, Point, QueryCursor};
+use tree_sitter_typescript::{language_tsx, language_typescript};
 
-#[derive(Debug, PartialEq)]
-pub enum CursorPosition {
-    OutsideTFunction,
-    InFirstParam(String),
-    InSecondParam {
-        translation_key: String,
-        position: SecondParamPosition,
-    },
+pub struct TFunctionParser<'a> {
+    document: &'a str,
+    position: Position,
+    tree: tree_sitter::Tree,
+    query: tree_sitter::Query,
 }
 
 #[derive(Debug, PartialEq)]
@@ -20,147 +19,217 @@ pub enum SecondParamPosition {
     InValue(String),
 }
 
-pub struct TFunctionAnalyzer<'a> {
-    code: &'a str,
-    cursor: Position,
-    pub(crate) tree: tree_sitter::Tree,
+pub enum TFunctionPosition {
+    Outside,
+    InFunctionName,
+    InFirstArgument(String),
+    InSecondArgument {
+        key: String,
+        position: SecondParamPosition,
+    },
 }
 
-impl<'a> TFunctionAnalyzer<'a> {
-    pub(crate) fn new(code: &'a str, cursor: Position) -> Result<Self> {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_typescript::language_typescript())
-            .map_err(|_| Error::internal_error())?;
-        let tree = parser.parse(code, None).ok_or_else(Error::internal_error)?;
+impl<'a> TFunctionParser<'a> {
+    pub fn new(
+        document: &'a str,
+        position: Position,
+        file_path: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let queries = Queries::default();
+        let is_tsx = Path::new(file_path)
+            .extension()
+            .map_or(false, |ext| ext == "tsx");
 
-        Ok(Self { code, cursor, tree })
-    }
-
-    pub(crate) fn analyze(&self) -> CursorPosition {
-        let root_node = self.tree.root_node();
-        let cursor_point = Point {
-            row: self.cursor.line as usize,
-            column: self.cursor.character as usize,
+        let (language, query) = if is_tsx {
+            (language_tsx(), queries.tsx_t_function)
+        } else {
+            (language_typescript(), queries.ts_t_function)
         };
 
-        self.find_t_function_call(root_node, cursor_point)
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&language)?;
+
+        let tree = parser
+            .parse(document, None)
+            .ok_or("Failed to parse document")?;
+
+        Ok(Self {
+            document,
+            position,
+            tree,
+            query,
+        })
     }
 
-    fn find_t_function_call(&self, node: Node, cursor_point: Point) -> CursorPosition {
-        if self.is_t_function_call(&node) {
-            return self.analyze_t_call(node, cursor_point);
-        }
+    pub fn parse(&self) -> TFunctionPosition {
+        let node = self
+            .tree
+            .root_node()
+            .named_descendant_for_point_range(
+                Point {
+                    row: self.position.line as usize,
+                    column: self.position.character as usize,
+                },
+                Point {
+                    row: self.position.line as usize,
+                    column: self.position.character as usize,
+                },
+            )
+            .expect("Failed to find node at position");
 
-        for child in node.named_children(&mut node.walk()) {
-            let result = self.find_t_function_call(child, cursor_point);
-            if result != CursorPosition::OutsideTFunction {
-                return result;
-            }
-        }
+        if let Some(t_function_node) = self.find_parent_t_function(&node) {
+            let mut query_cursor = QueryCursor::new();
+            let matches =
+                query_cursor.matches(&self.query, t_function_node, self.document.as_bytes());
 
-        CursorPosition::OutsideTFunction
-    }
+            for match_ in matches {
+                let mut func_name_node = None;
+                let mut first_arg_node = None;
+                let mut second_arg_node = None;
 
-    pub(crate) fn is_t_function_call(&self, node: &Node) -> bool {
-        node.kind() == "call_expression"
-            && node
-                .child_by_field_name("function")
-                .map(|func_node| {
-                    func_node.kind() == "identifier"
-                        && func_node.utf8_text(self.code.as_bytes()).unwrap_or("") == "t"
-                })
-                .unwrap_or(false)
-    }
-
-    fn analyze_t_call(&self, node: Node, cursor_point: Point) -> CursorPosition {
-        let arguments_node = node
-            .child_by_field_name("arguments")
-            .expect("t() call should have arguments");
-        let argument_nodes: Vec<_> = arguments_node
-            .named_children(&mut arguments_node.walk())
-            .collect();
-
-        let translation_key = argument_nodes
-            .first()
-            .filter(|&arg| arg.kind() == "string")
-            .and_then(|arg| arg.utf8_text(self.code.as_bytes()).ok())
-            .map(|s| {
-                s.trim_matches(|c| c == '"' || c == '\'' || c == '`')
-                    .to_string()
-            })
-            .unwrap_or_default();
-
-        if let Some(first_arg) = argument_nodes.first() {
-            if self.point_in_range(cursor_point, first_arg) {
-                return CursorPosition::InFirstParam(translation_key);
-            }
-        }
-
-        if let Some(second_arg) = argument_nodes.get(1) {
-            if self.point_in_range(cursor_point, second_arg) {
-                return self.analyze_second_param(second_arg, cursor_point, translation_key);
-            }
-        }
-
-        CursorPosition::OutsideTFunction
-    }
-
-    fn analyze_second_param(
-        &self,
-        node: &Node,
-        cursor_point: Point,
-        translation_key: String,
-    ) -> CursorPosition {
-        if node.kind() == "object" || node.kind() == "object_pattern" {
-            if node.named_child_count() == 0 {
-                return CursorPosition::InSecondParam {
-                    translation_key,
-                    position: SecondParamPosition::EmptyObject,
-                };
-            }
-
-            for prop_node in node.named_children(&mut node.walk()) {
-                if self.point_in_range(cursor_point, &prop_node) {
-                    if let Some(key) = prop_node.child_by_field_name("key") {
-                        let key_text = key
-                            .utf8_text(self.code.as_bytes())
-                            .unwrap_or("")
-                            .to_string();
-                        if self.point_in_range(cursor_point, &key) {
-                            return CursorPosition::InSecondParam {
-                                translation_key,
-                                position: SecondParamPosition::InKey(key_text),
-                            };
-                        }
+                for capture in match_.captures {
+                    let capture_name = self.query.capture_names()[capture.index as usize];
+                    match capture_name {
+                        "func_name" => func_name_node = Some(capture.node),
+                        "first_arg" => first_arg_node = Some(capture.node),
+                        "second_arg" => second_arg_node = Some(capture.node),
+                        _ => {}
                     }
-                    if let Some(value) = prop_node.child_by_field_name("value") {
-                        let key_text = prop_node
-                            .child_by_field_name("key")
-                            .and_then(|k| k.utf8_text(self.code.as_bytes()).ok())
-                            .unwrap_or("")
-                            .to_string();
-                        if self.point_in_range(cursor_point, &value) {
-                            return CursorPosition::InSecondParam {
-                                translation_key,
-                                position: SecondParamPosition::InValue(key_text),
-                            };
+                }
+
+                if let (Some(func), Some(first), second) =
+                    (func_name_node, first_arg_node, second_arg_node)
+                {
+                    if func.utf8_text(self.document.as_bytes()).unwrap_or("") == "t" {
+                        if self.is_cursor_in_node(func) {
+                            return TFunctionPosition::InFunctionName;
+                        } else if self.is_cursor_in_node(first) {
+                            let key = first
+                                .utf8_text(self.document.as_bytes())
+                                .map(|s| s.trim_matches('"').to_string())
+                                .unwrap_or_default();
+                            return TFunctionPosition::InFirstArgument(key);
+                        } else if let Some(second) = second {
+                            if self.is_cursor_in_node(second) {
+                                let key = first
+                                    .utf8_text(self.document.as_bytes())
+                                    .map(|s| s.trim_matches('"').to_string())
+                                    .unwrap_or_default();
+
+                                let position = self.determine_second_param_position(second);
+                                return TFunctionPosition::InSecondArgument { key, position };
+                            }
                         }
                     }
                 }
             }
         }
 
-        CursorPosition::InSecondParam {
-            translation_key,
-            position: SecondParamPosition::InObject,
-        }
+        TFunctionPosition::Outside
     }
 
-    fn point_in_range(&self, point: Point, node: &Node) -> bool {
+    pub fn find_parent_t_function<'tree>(&self, node: &'tree Node<'tree>) -> Option<Node<'tree>> {
+        let mut current = *node;
+        while let Some(parent) = current.parent() {
+            if parent.kind() == "call_expression"
+                && parent.child(0).map_or(false, |child| {
+                    child.kind() == "identifier"
+                        && child.utf8_text(self.document.as_bytes()).unwrap_or("") == "t"
+                })
+            {
+                return Some(parent);
+            }
+            current = parent;
+        }
+        None
+    }
+
+    fn determine_second_param_position(&self, node: Node) -> SecondParamPosition {
+        let node_text = node.utf8_text(self.document.as_bytes()).unwrap_or("");
+        if node_text.trim().is_empty() || node_text == "{}" {
+            return SecondParamPosition::EmptyObject;
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if self.is_cursor_in_node(child) {
+                match child.kind() {
+                    "string_content" => {
+                        let parent = child.parent().expect("String content should have a parent");
+                        if parent.kind() == "string" {
+                            let grandparent = parent.parent().expect("String should have a parent");
+                            if grandparent.kind() == "pair" {
+                                let key = grandparent
+                                    .child(0)
+                                    .and_then(|n| n.utf8_text(self.document.as_bytes()).ok());
+                                if let Some(key) = key {
+                                    return SecondParamPosition::InValue(
+                                        key.trim_matches('"').to_string(),
+                                    );
+                                }
+                            }
+                        }
+                        return SecondParamPosition::InValue(String::new());
+                    }
+                    "string" => {
+                        let text = child.utf8_text(self.document.as_bytes()).unwrap_or("");
+                        let parent = child.parent().expect("String should have a parent");
+                        if parent.kind() == "pair"
+                            && parent.child(0).map_or(false, |n| n.id() == child.id())
+                        {
+                            return SecondParamPosition::InKey(text.trim_matches('"').to_string());
+                        } else {
+                            return SecondParamPosition::InValue(
+                                text.trim_matches('"').to_string(),
+                            );
+                        }
+                    }
+                    "identifier" => {
+                        let text = child.utf8_text(self.document.as_bytes()).unwrap_or("");
+                        if child.prev_sibling().map_or(false, |n| n.kind() == ":") {
+                            return SecondParamPosition::InValue(text.to_string());
+                        } else {
+                            return SecondParamPosition::InKey(text.to_string());
+                        }
+                    }
+                    ":" => {
+                        if let Some(prev) = child.prev_sibling() {
+                            if prev.kind() == "string" || prev.kind() == "identifier" {
+                                let key = prev
+                                    .utf8_text(self.document.as_bytes())
+                                    .unwrap_or("")
+                                    .trim_matches('"')
+                                    .to_string();
+                                return SecondParamPosition::InKey(key);
+                            }
+                        }
+                        return SecondParamPosition::InObject;
+                    }
+                    "{" | "}" => return SecondParamPosition::InObject,
+                    _ => {
+                        if child.is_named() {
+                            return self.determine_second_param_position(child);
+                        }
+                    }
+                }
+            }
+        }
+
+        SecondParamPosition::InObject
+    }
+
+    fn is_cursor_in_node(&self, node: Node) -> bool {
         let start = node.start_position();
         let end = node.end_position();
-        (start.row < point.row || (start.row == point.row && start.column <= point.column))
-            && (point.row < end.row || (point.row == end.row && point.column <= end.column))
+
+        (start.row as u32 <= self.position.line && self.position.line <= end.row as u32)
+            && (start.row as u32 != self.position.line
+                || start.column as u32 <= self.position.character)
+            && (end.row as u32 != self.position.line
+                || self.position.character <= end.column as u32)
+    }
+
+    pub fn tree(&self) -> &tree_sitter::Tree {
+        &self.tree
     }
 }
