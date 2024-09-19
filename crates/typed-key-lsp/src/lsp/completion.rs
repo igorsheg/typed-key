@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 
 use crate::lsp::docs::TypedKeyDocs;
+use crate::lsp::visitor::{SecondParamInfo, TFunctionInfo, TFunctionVisitor};
 use crate::parse::AstNode;
 use crate::Parser;
 use ropey::Rope;
 use tower_lsp::jsonrpc::{Error, Result};
 use tower_lsp::lsp_types::*;
-use tracing::debug;
 
 use super::ast::extract_variables_and_options;
-use super::position::{SecondParamPosition, TFunctionParser, TFunctionPosition};
 use super::utils::{get_select_options, is_select_variable, traverse_ast_for_variables};
 
 pub async fn handle_completion(
@@ -20,19 +19,47 @@ pub async fn handle_completion(
     let document_str = document.to_string();
 
     let position = params.text_document_position.position;
-    let file_path = params.text_document_position.text_document.uri.path();
 
-    let parser = TFunctionParser::new(&document_str, position, file_path)
-        .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())?;
+    let t_visitor = TFunctionVisitor::new(None);
+    let parsed = t_visitor.analyze(&document_str, position);
 
-    match parser.parse() {
-        TFunctionPosition::InFirstArgument(_) => {
-            provide_translation_key_completions(translation_keys)
-        }
-        TFunctionPosition::InSecondArgument { key, position } => {
-            provide_second_param_completions(Some(key), position, translation_keys)
-        }
-        _ => Ok(None),
+    match parsed {
+        TFunctionInfo::NotInFunction => Ok(None),
+        TFunctionInfo::InFunction(context) => match (&context.first_param, &context.second_param) {
+            (Some(translation_key), Some(second_param)) => match second_param {
+                SecondParamInfo::InObject(_) => {
+                    if translation_key.is_empty() {
+                        return Ok(None);
+                    }
+
+                    let Some(value) = translation_keys.get(translation_key) else {
+                        return Ok(None);
+                    };
+
+                    let ast = Parser::new(value.as_str().unwrap_or_default())
+                        .parse()
+                        .map_err(|_| Error::internal_error())?;
+
+                    let completions = get_variable_completions(&ast, translation_key);
+
+                    Ok(Some(CompletionResponse::Array(completions)))
+                }
+                SecondParamInfo::InObjectKey(_) => Ok(None),
+                SecondParamInfo::InObjectKeyValue(var_name) => {
+                    let Some(value) = translation_keys.get(translation_key) else {
+                        return Ok(None);
+                    };
+                    let ast = Parser::new(value.as_str().unwrap_or_default())
+                        .parse()
+                        .map_err(|_| Error::internal_error())?;
+                    let completions = get_value_completions(&ast, &var_name, &translation_key);
+                    Ok(Some(CompletionResponse::Array(completions)))
+                }
+            },
+            (Some(_), _) => provide_translation_key_completions(translation_keys),
+            (None, None) => Ok(None),
+            (None, Some(_)) => Ok(None),
+        },
     }
 }
 
@@ -57,35 +84,6 @@ fn provide_translation_key_completions(
             }
         })
         .collect();
-
-    Ok(Some(CompletionResponse::Array(completions)))
-}
-
-fn provide_second_param_completions(
-    translation_key: Option<String>,
-    position: SecondParamPosition,
-    translation_keys: &HashMap<String, serde_json::Value>,
-) -> Result<Option<CompletionResponse>> {
-    let Some(key) = translation_key else {
-        return Ok(None);
-    };
-
-    let Some(value) = translation_keys.get(&key) else {
-        return Ok(None);
-    };
-
-    let ast = Parser::new(value.as_str().unwrap_or_default())
-        .parse()
-        .map_err(|_| Error::internal_error())?;
-
-    debug!("IN POSITION --------> {:?}", position);
-
-    let completions = match position {
-        SecondParamPosition::EmptyObject
-        | SecondParamPosition::InObject
-        | SecondParamPosition::InKey(_) => get_variable_completions(&ast, &key),
-        SecondParamPosition::InValue(var_name) => get_value_completions(&ast, &var_name, &key),
-    };
 
     Ok(Some(CompletionResponse::Array(completions)))
 }

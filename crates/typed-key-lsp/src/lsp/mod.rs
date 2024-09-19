@@ -7,6 +7,5 @@ pub(crate) mod config;
 pub(crate) mod docs;
 pub(crate) mod fs;
 pub(crate) mod hover;
-pub(crate) mod position;
-pub(crate) mod queries;
 pub(crate) mod utils;
+pub(crate) mod visitor;

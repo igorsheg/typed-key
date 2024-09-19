@@ -11,7 +11,6 @@ use tower_lsp::{
     },
     Client,
 };
-use tracing::debug;
 
 use crate::lsp::{
     action::handle_code_action,
@@ -151,7 +150,6 @@ pub fn lsp_task(
                 LspMessage::DidOpen(params) => {
                     let (sender, _) = oneshot::channel();
                     if let Some(package) = find_workspace_package(&params.text_document.uri) {
-                        debug!("Using package: {:?}", package.as_path());
                         lsp_data.config.translations_dir = package.join(&config.translations_dir);
                         let _ = lsp_channel.send(LspMessage::Initialized(sender)).await;
                     }
