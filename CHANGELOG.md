@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.18](https://github.com/igorsheg/typed-key/compare/v0.0.17...v0.0.18) (2024-09-20)
+
+
+### Chores
+
+* **repo:** cleanup ([0108b20](https://github.com/igorsheg/typed-key/commit/0108b209a62f6de3b6c06dadc21f6b9407d00d33))
+
 ## [0.0.17](https://github.com/igorsheg/typed-key/compare/v0.0.16...v0.0.17) (2024-09-15)
 
 
