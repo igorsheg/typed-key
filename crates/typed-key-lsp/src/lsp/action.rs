@@ -5,6 +5,7 @@ use tower_lsp::lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams, CodeActionResponse,
     Position, Range, TextEdit, WorkspaceEdit,
 };
+use tracing::info;
 
 use super::channels::diagnostics::MissingVariableDiagnosticData;
 use super::visitor::{TFunctionInfo, TFunctionVisitor};
@@ -18,6 +19,7 @@ struct OptionsObjectVisitor {
     t_function_span: Span,
     options_object_span: Option<Span>,
     has_second_argument: bool,
+    is_empty_object: bool,
 }
 
 impl OptionsObjectVisitor {
@@ -26,6 +28,7 @@ impl OptionsObjectVisitor {
             t_function_span,
             options_object_span: None,
             has_second_argument: false,
+            is_empty_object: false,
         }
     }
 }
@@ -38,6 +41,7 @@ impl<'a> Visit<'a> for OptionsObjectVisitor {
                 if let Some(second_arg) = call_expr.arguments.get(1) {
                     if let Expression::ObjectExpression(obj_expr) = &second_arg.to_expression() {
                         self.options_object_span = Some(obj_expr.span);
+                        self.is_empty_object = obj_expr.properties.is_empty();
                     }
                 }
             }
@@ -45,11 +49,14 @@ impl<'a> Visit<'a> for OptionsObjectVisitor {
     }
 }
 
-fn find_options_object(program: &Program, t_function_span: Span) -> (Option<Span>, bool) {
+fn find_options_object(program: &Program, t_function_span: Span) -> (Option<Span>, bool, bool) {
     let mut visitor = OptionsObjectVisitor::new(t_function_span);
     visitor.visit_program(&program);
-    let obj = visitor.options_object_span;
-    (obj, visitor.has_second_argument)
+    (
+        visitor.options_object_span,
+        visitor.has_second_argument,
+        visitor.is_empty_object,
+    )
 }
 
 pub(crate) async fn handle_code_action(
@@ -116,7 +123,7 @@ fn create_insert_variable_edit(
 
     if let TFunctionInfo::InFunction(context) = t_visitor.analyze(&content, position) {
         if let Some(t_function_span) = context.span {
-            let (options_span, has_second_argument) =
+            let (options_span, has_second_argument, is_empty_object) =
                 find_options_object(&program, t_function_span);
             return create_edit_from_span(
                 &allocator,
@@ -124,6 +131,7 @@ fn create_insert_variable_edit(
                 t_function_span,
                 options_span,
                 has_second_argument,
+                is_empty_object,
                 missing_var,
             );
         }
@@ -147,6 +155,7 @@ fn create_edit_from_span(
     t_function_span: Span,
     options_span: Option<Span>,
     has_second_argument: bool,
+    is_empty_object: bool,
     missing_var: &str,
 ) -> Option<TextEdit> {
     let builder = AstBuilder::new(allocator);
@@ -163,13 +172,16 @@ fn create_edit_from_span(
     );
 
     let (insert_position, new_text) = if let Some(options_span) = options_span {
-        // Options object exists, add new property
         let insert_position = position_from_offset(content, options_span.end - 1);
 
-        let new_text = format!(
-            ", {}",
+        let new_text = if is_empty_object {
             ast_to_string(&AstKind::ObjectProperty(&new_property))
-        );
+        } else {
+            format!(
+                ", {}",
+                ast_to_string(&AstKind::ObjectProperty(&new_property))
+            )
+        };
         (insert_position, new_text)
     } else if has_second_argument {
         // Second argument exists but is not an object, replace with new object
@@ -212,6 +224,7 @@ fn create_edit_from_span(
 }
 
 fn ast_to_string(node: &AstKind) -> String {
+    info!("CODE ACTION NODE --------> {:?}", node);
     match node {
         AstKind::ObjectExpression(obj) => {
             let properties = obj
@@ -231,12 +244,13 @@ fn ast_to_string(node: &AstKind) -> String {
         }
         AstKind::ObjectProperty(obj_prop) => {
             let key = ast_to_string(&AstKind::PropertyKey(&obj_prop.key));
-            format!("{}: ", key)
+            let value = ast_to_string(&AstKind::from_expression(&obj_prop.value));
+            format!("{}: {}", key, value)
         }
         AstKind::StringLiteral(s) => format!("\"{}\"", s.value),
         AstKind::IdentifierName(id) => id.name.to_string(),
         AstKind::PropertyKey(key) => key.name().unwrap_or_default().to_string(),
-        _ => "[unsupported node]".to_string(),
+        _ => "\"\"".to_string(),
     }
 }
 

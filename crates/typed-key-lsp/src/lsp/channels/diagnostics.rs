@@ -1,18 +1,22 @@
 use std::collections::HashMap;
 
+use oxc::{
+    ast::{
+        ast::{CallExpression, Expression},
+        AstKind, Visit,
+    },
+    span::Span,
+};
 use ropey::Rope;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::sync::mpsc::Receiver;
 use tower_lsp::{
-    lsp_types::{Diagnostic, DiagnosticSeverity, Url},
+    lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range, Url},
     Client,
 };
-use tree_sitter::Node;
 
-use crate::lsp::{
-    ast::extract_variables_and_options,
-    utils::{node_to_range, traverse_nodes},
-};
+use crate::{lsp::utils::traverse_ast_for_variables, Parser};
 
 #[derive(Debug)]
 pub enum DiagnosticMessage {
@@ -37,114 +41,142 @@ pub fn diagnostics_task(client: Client, mut receiver: Receiver<DiagnosticMessage
     });
 }
 
-pub fn generate_diagnostics(
-    content: &Rope,
-    translation_keys: &HashMap<String, serde_json::Value>,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
+pub struct DiagnosticsVisitor<'a> {
+    diagnostics: Vec<Diagnostic>,
+    translation_keys: &'a HashMap<String, Value>,
+    content: &'a Rope,
+}
 
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_typescript::language_typescript())
-        .expect("Failed to load TypeScript grammar");
-
-    let content_string = content.to_string();
-    let tree = match parser.parse(&content_string, None) {
-        Some(tree) => tree,
-        None => return diagnostics,
-    };
-
-    let root_node = tree.root_node();
-
-    for node in traverse_nodes(root_node) {
-        if node.kind() == "call_expression" {
-            if let Some(func_node) = node.child_by_field_name("function") {
-                let func_name = func_node.utf8_text(content_string.as_bytes()).unwrap_or("");
-                if func_name == "t" {
-                    if let Some(diagnostics_for_node) =
-                        check_t_function_call(&content_string, node, translation_keys)
-                    {
-                        diagnostics.extend(diagnostics_for_node);
-                    }
-                }
-            }
+impl<'a> DiagnosticsVisitor<'a> {
+    pub fn new(translation_keys: &'a HashMap<String, Value>, content: &'a Rope) -> Self {
+        Self {
+            diagnostics: Vec::new(),
+            translation_keys,
+            content,
         }
     }
 
-    diagnostics
-}
-
-fn check_t_function_call<'a>(
-    content: &str,
-    node: Node<'a>,
-    translation_keys: &HashMap<String, serde_json::Value>,
-) -> Option<Vec<Diagnostic>> {
-    let mut diagnostics = Vec::new();
-
-    if let Some(arguments_node) = node.child_by_field_name("arguments") {
-        let mut walker = arguments_node.walk();
-        let arg_nodes: Vec<_> = arguments_node.named_children(&mut walker).collect();
-
-        if !arg_nodes.is_empty() {
-            let key_node = &arg_nodes[0];
-            let key = key_node.utf8_text(content.as_bytes()).ok()?;
-            let key = key.trim_matches(|c| c == '\'' || c == '"');
-
-            if let Some(translation_value) = translation_keys.get(key) {
-                let (required_vars, _) = extract_variables_and_options(translation_value);
-                let provided_vars = extract_provided_variables(content, arg_nodes.get(1));
-
-                for var in required_vars.iter() {
-                    if !provided_vars.contains(var) {
-                        let range = node_to_range(key_node.to_owned());
-                        let diagnostic_data = MissingVariableDiagnosticData {
-                            key: key.to_string(),
-                            missing_variable: var.to_string(),
-                        };
-                        diagnostics.push(Diagnostic {
-                            range,
-                            severity: Some(DiagnosticSeverity::WARNING),
-                            code: None,
-                            code_description: None,
-                            source: Some("typedkey".to_string()),
-                            message: format!("Missing required variable: {} for key: {}", var, key),
-                            related_information: None,
-                            tags: None,
-                            data: Some(serde_json::to_value(diagnostic_data).ok()?),
-                        });
-                    }
-                }
-            }
+    fn is_t_function_call(&self, call_expr: &CallExpression) -> bool {
+        match &call_expr.callee {
+            Expression::Identifier(ident) => ident.name == "t",
+            Expression::StaticMemberExpression(static_member) => static_member.property.name == "t",
+            _ => false,
         }
     }
 
-    Some(diagnostics)
+    fn add_diagnostic(&mut self, key: &str, missing_var: &str, span: Span) {
+        let range = self.span_to_range(span);
+        self.diagnostics.push(Diagnostic {
+            range,
+            severity: Some(DiagnosticSeverity::WARNING),
+            code: None,
+            code_description: None,
+            source: Some("typedkey".to_string()),
+            message: format!(
+                "Missing required variable: {} for key: {}",
+                missing_var, key
+            ),
+            related_information: None,
+            tags: None,
+            data: Some(
+                serde_json::to_value(MissingVariableDiagnosticData {
+                    key: key.to_string(),
+                    missing_variable: missing_var.to_string(),
+                })
+                .expect("Failed to serialize diagnostic data"),
+            ),
+        });
+    }
+
+    fn span_to_range(&self, span: Span) -> Range {
+        let start_position = self.offset_to_position(span.start as usize);
+        let end_position = self.offset_to_position(span.end as usize);
+        Range::new(start_position, end_position)
+    }
+
+    fn offset_to_position(&self, offset: usize) -> Position {
+        let line_index = self.content.char_to_line(offset);
+        let line_start = self.content.line_to_char(line_index);
+        let column = offset - line_start;
+        Position::new(line_index as u32, column as u32)
+    }
+
+    fn extract_provided_variables(
+        &self,
+        obj_expr: &oxc::ast::ast::ObjectExpression,
+    ) -> Vec<String> {
+        obj_expr
+            .properties
+            .iter()
+            .filter_map(|prop| {
+                if let oxc::ast::ast::ObjectPropertyKind::ObjectProperty(prop) = prop {
+                    prop.key.static_name().map(|name| name.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
-fn extract_provided_variables(content: &str, options_node: Option<&Node<'_>>) -> Vec<String> {
-    let mut provided_vars = Vec::new();
+impl<'a> Visit<'a> for DiagnosticsVisitor<'a> {
+    fn enter_node(&mut self, kind: AstKind<'a>) {
+        if let AstKind::CallExpression(call_expr) = kind {
+            if self.is_t_function_call(call_expr) {
+                if let Some(first_arg) = call_expr.arguments.first() {
+                    if let Expression::StringLiteral(key_literal) = &first_arg.to_expression() {
+                        let key = key_literal.value.to_string();
+                        if let Some(translation_value) = self.translation_keys.get(&key) {
+                            if let Some(translation_str) = translation_value.as_str() {
+                                let parser = Parser::new(translation_str);
+                                if let Ok(ast) = parser.parse() {
+                                    let mut required_vars = Vec::new();
+                                    traverse_ast_for_variables(&ast, &mut required_vars);
 
-    if let Some(node) = options_node {
-        if node.kind() == "object" {
-            for child in node.named_children(&mut node.walk()) {
-                match child.kind() {
-                    "pair" => {
-                        if let Some(key_node) = child.child_by_field_name("key") {
-                            if let Ok(var) = key_node.utf8_text(content.as_bytes()) {
-                                provided_vars.push(var.to_string());
+                                    let provided_vars =
+                                        if let Some(second_arg) = call_expr.arguments.get(1) {
+                                            if let Expression::ObjectExpression(obj_expr) =
+                                                &second_arg.to_expression()
+                                            {
+                                                self.extract_provided_variables(obj_expr)
+                                            } else {
+                                                Vec::new()
+                                            }
+                                        } else {
+                                            Vec::new()
+                                        };
+
+                                    for var in required_vars {
+                                        if !provided_vars.contains(&var) {
+                                            self.add_diagnostic(&key, &var, call_expr.span);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
-                    "shorthand_property_identifier" => {
-                        if let Ok(var) = child.utf8_text(content.as_bytes()) {
-                            provided_vars.push(var.to_string());
-                        }
-                    }
-                    _ => {}
                 }
             }
         }
     }
+}
 
-    provided_vars
+pub fn generate_diagnostics(
+    content: &Rope,
+    translation_keys: &HashMap<String, Value>,
+) -> Vec<Diagnostic> {
+    let allocator = oxc::allocator::Allocator::default();
+    let source_type = oxc::span::SourceType::default()
+        .with_typescript(true)
+        .with_module(true)
+        .with_jsx(true);
+
+    let document_str = content.to_string();
+
+    let parse_result = oxc::parser::Parser::new(&allocator, &document_str, source_type).parse();
+    let program = parse_result.program;
+
+    let mut visitor = DiagnosticsVisitor::new(translation_keys, content);
+    visitor.visit_program(&program);
+    visitor.diagnostics
 }
