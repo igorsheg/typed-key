@@ -1,218 +1,272 @@
+use oxc::allocator::Allocator;
+use oxc::parser::Parser;
+use ropey::Rope;
 use tower_lsp::lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams, CodeActionResponse,
     Position, Range, TextEdit, WorkspaceEdit,
 };
+use tracing::info;
 
-use super::{diagnostics::MissingVariableDiagnosticData, typedkey_lsp::TypedKeyLspImpl};
+use super::channels::diagnostics::MissingVariableDiagnosticData;
+use super::visitor::{TFunctionInfo, TFunctionVisitor};
 
-impl TypedKeyLspImpl {
-    pub(crate) async fn handle_code_action(
-        &self,
-        params: CodeActionParams,
-    ) -> tower_lsp::jsonrpc::Result<Option<CodeActionResponse>> {
-        let uri = params.text_document.uri;
-        let document_content = self
-            .document_map
-            .get(&uri)
-            .map(|content| content.clone())
-            .unwrap_or_default();
+use oxc::ast::visit::Visit;
+use oxc::ast::AstKind;
+use oxc::ast::{ast::*, AstBuilder};
+use oxc::span::Span;
 
-        let mut actions = Vec::new();
+struct OptionsObjectVisitor {
+    t_function_span: Span,
+    options_object_span: Option<Span>,
+    has_second_argument: bool,
+    is_empty_object: bool,
+}
 
-        for diagnostic in params.context.diagnostics {
-            if let Some(data) = diagnostic.data.as_ref() {
-                if let Ok(diagnostic_data) =
-                    serde_json::from_value::<MissingVariableDiagnosticData>(data.clone())
-                {
-                    if let Some(edit) = self.create_insert_variable_edit(
-                        &document_content,
-                        diagnostic.range,
-                        &diagnostic_data.missing_variable,
-                    ) {
-                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                            title: format!(
-                                "Insert missing variable: {}",
-                                diagnostic_data.missing_variable
-                            ),
-                            kind: Some(CodeActionKind::QUICKFIX),
-                            diagnostics: Some(vec![diagnostic.clone()]),
-                            edit: Some(WorkspaceEdit {
-                                changes: Some([(uri.clone(), vec![edit])].into_iter().collect()),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        }));
-                    }
-                }
-            }
+impl OptionsObjectVisitor {
+    fn new(t_function_span: Span) -> Self {
+        Self {
+            t_function_span,
+            options_object_span: None,
+            has_second_argument: false,
+            is_empty_object: false,
         }
-
-        if actions.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(actions))
-        }
-    }
-
-    fn create_insert_variable_edit(
-        &self,
-        content: &str,
-        diagnostic_range: Range,
-        missing_var: &str,
-    ) -> Option<TextEdit> {
-        let lines: Vec<&str> = content.lines().collect();
-        let start_line = diagnostic_range.start.line as usize;
-
-        let (t_call_start_line, t_call_start_char) = self.find_t_call_start(&lines, start_line)?;
-
-        let (t_call_end_line, t_call_end_char) =
-            self.find_t_call_end(&lines, t_call_start_line, t_call_start_char)?;
-
-        let options_info = self.find_options_object(
-            &lines,
-            t_call_start_line,
-            t_call_start_char,
-            t_call_end_line,
-            t_call_end_char,
-        );
-
-        match options_info {
-            Some((options_start_line, options_start_char, options_end_line, options_end_char)) => {
-                let insert_line = options_end_line;
-                let insert_char = if options_start_line == options_end_line {
-                    options_end_char - 1
-                } else {
-                    lines[insert_line].len() as u32
-                };
-
-                let insert_position = Position::new(insert_line as u32, insert_char);
-                let options_content = if options_start_line == options_end_line {
-                    &lines[options_start_line]
-                        [options_start_char as usize + 1..options_end_char as usize - 1]
-                } else {
-                    &lines[options_start_line][options_start_char as usize + 1..]
-                };
-
-                let trimmed_content = options_content.trim();
-
-                let new_text = if trimmed_content.is_empty() {
-                    format!("{}: \"\"", missing_var)
-                } else if trimmed_content.ends_with(',') {
-                    format!(" {}: \"\"", missing_var)
-                } else {
-                    format!(", {}: \"\"", missing_var)
-                };
-
-                Some(TextEdit {
-                    range: Range::new(insert_position, insert_position),
-                    new_text,
-                })
-            }
-            None => {
-                let insert_position = Position::new(t_call_end_line as u32, t_call_end_char - 1);
-                Some(TextEdit {
-                    range: Range::new(insert_position, insert_position),
-                    new_text: format!(", {{ {}: \"\" }}", missing_var),
-                })
-            }
-        }
-    }
-
-    fn find_t_call_start(&self, lines: &[&str], start_line: usize) -> Option<(usize, u32)> {
-        for (i, line) in lines.iter().enumerate().skip(start_line) {
-            if let Some(index) = line.find("t(") {
-                return Some((i, index as u32));
-            }
-        }
-        None
-    }
-
-    fn find_t_call_end(
-        &self,
-        lines: &[&str],
-        start_line: usize,
-        start_char: u32,
-    ) -> Option<(usize, u32)> {
-        let mut paren_count = 0;
-        for (i, line) in lines.iter().enumerate().skip(start_line) {
-            let start = if i == start_line {
-                start_char as usize
-            } else {
-                0
-            };
-            for (j, c) in line[start..].char_indices() {
-                if c == '(' {
-                    paren_count += 1;
-                } else if c == ')' {
-                    paren_count -= 1;
-                    if paren_count == 0 {
-                        return Some((i, (start + j + 1) as u32));
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    fn find_options_object(
-        &self,
-        lines: &[&str],
-        start_line: usize,
-        start_char: u32,
-        end_line: usize,
-        end_char: u32,
-    ) -> Option<(usize, u32, usize, u32)> {
-        let mut brace_count = 0;
-        let mut options_start = None;
-        let mut in_string = false;
-        let mut escape = false;
-
-        for (i, line) in lines.iter().enumerate().skip(start_line) {
-            let start = if i == start_line {
-                start_char as usize
-            } else {
-                0
-            };
-            let end = if i == end_line {
-                end_char as usize
-            } else {
-                line.len()
-            };
-
-            for (j, c) in line[start..end].char_indices() {
-                if !in_string {
-                    if c == '{' {
-                        if brace_count == 0 {
-                            options_start = Some((i, (start + j) as u32));
-                        }
-                        brace_count += 1;
-                    } else if c == '}' {
-                        brace_count -= 1;
-                        if brace_count == 0 && options_start.is_some() {
-                            if let Some(options_start) = options_start {
-                                return Some((
-                                    options_start.0,
-                                    options_start.1,
-                                    i,
-                                    (start + j + 1) as u32,
-                                ));
-                            }
-                        }
-                    } else if c == '"' || c == '\'' {
-                        in_string = true;
-                    }
-                } else if !escape {
-                    if c == '"' || c == '\'' {
-                        in_string = false;
-                    } else if c == '\\' {
-                        escape = true;
-                    }
-                } else {
-                    escape = false;
-                }
-            }
-        }
-        None
     }
 }
 
+impl<'a> Visit<'a> for OptionsObjectVisitor {
+    fn enter_node(&mut self, kind: AstKind<'a>) {
+        if let AstKind::CallExpression(call_expr) = kind {
+            if call_expr.span == self.t_function_span {
+                self.has_second_argument = call_expr.arguments.len() > 1;
+                if let Some(second_arg) = call_expr.arguments.get(1) {
+                    if let Expression::ObjectExpression(obj_expr) = &second_arg.to_expression() {
+                        self.options_object_span = Some(obj_expr.span);
+                        self.is_empty_object = obj_expr.properties.is_empty();
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn find_options_object(program: &Program, t_function_span: Span) -> (Option<Span>, bool, bool) {
+    let mut visitor = OptionsObjectVisitor::new(t_function_span);
+    visitor.visit_program(&program);
+    (
+        visitor.options_object_span,
+        visitor.has_second_argument,
+        visitor.is_empty_object,
+    )
+}
+
+pub(crate) async fn handle_code_action(
+    params: CodeActionParams,
+    document: &Rope,
+) -> tower_lsp::jsonrpc::Result<Option<CodeActionResponse>> {
+    let uri = params.text_document.uri;
+
+    let mut actions = Vec::new();
+
+    for diagnostic in params.context.diagnostics {
+        if let Some(data) = diagnostic.data.as_ref() {
+            if let Ok(diagnostic_data) =
+                serde_json::from_value::<MissingVariableDiagnosticData>(data.clone())
+            {
+                if let Some(edit) = create_insert_variable_edit(
+                    &document.to_string(),
+                    diagnostic.range,
+                    &diagnostic_data.missing_variable,
+                ) {
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: format!(
+                            "Insert missing variable: {}",
+                            diagnostic_data.missing_variable
+                        ),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diagnostic.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some([(uri.clone(), vec![edit])].into_iter().collect()),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+    }
+
+    if actions.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(actions))
+    }
+}
+
+fn create_insert_variable_edit(
+    content: &str,
+    diagnostic_range: Range,
+    missing_var: &str,
+) -> Option<TextEdit> {
+    let allocator = Allocator::default();
+    let source_type = SourceType::default()
+        .with_typescript(true)
+        .with_module(true)
+        .with_jsx(true);
+
+    let parse_result = Parser::new(&allocator, content, source_type).parse();
+    let program = parse_result.program;
+
+    let position = diagnostic_range.start;
+    let offset = position_to_offset(&position, content);
+
+    let t_visitor = TFunctionVisitor::new(Some(offset));
+
+    if let TFunctionInfo::InFunction(context) = t_visitor.analyze(&content, position) {
+        if let Some(t_function_span) = context.span {
+            let (options_span, has_second_argument, is_empty_object) =
+                find_options_object(&program, t_function_span);
+            return create_edit_from_span(
+                &allocator,
+                content,
+                t_function_span,
+                options_span,
+                has_second_argument,
+                is_empty_object,
+                missing_var,
+            );
+        }
+    }
+
+    None
+}
+
+fn position_to_offset(position: &Position, source: &str) -> u32 {
+    source
+        .lines()
+        .take(position.line as usize)
+        .map(|line| line.len() + 1)
+        .sum::<usize>() as u32
+        + position.character as u32
+}
+
+fn create_edit_from_span(
+    allocator: &Allocator,
+    content: &str,
+    t_function_span: Span,
+    options_span: Option<Span>,
+    has_second_argument: bool,
+    is_empty_object: bool,
+    missing_var: &str,
+) -> Option<TextEdit> {
+    let builder = AstBuilder::new(allocator);
+
+    let new_property = builder.object_property(
+        Span::default(),
+        PropertyKind::Init,
+        builder.property_key_identifier_name(Span::default(), missing_var),
+        builder.expression_string_literal(Span::default(), "".to_string()),
+        None,
+        false,
+        false,
+        false,
+    );
+
+    let (insert_position, new_text) = if let Some(options_span) = options_span {
+        let insert_position = position_from_offset(content, options_span.end - 1);
+
+        let new_text = if is_empty_object {
+            ast_to_string(&AstKind::ObjectProperty(&new_property))
+        } else {
+            format!(
+                ", {}",
+                ast_to_string(&AstKind::ObjectProperty(&new_property))
+            )
+        };
+        (insert_position, new_text)
+    } else if has_second_argument {
+        // Second argument exists but is not an object, replace with new object
+        let insert_position = position_from_offset(content, t_function_span.end - 1);
+        let new_object = builder.object_expression(
+            Span::default(),
+            builder.vec1(ObjectPropertyKind::ObjectProperty(
+                builder.alloc(new_property),
+            )),
+            None,
+        );
+
+        let new_text = format!(
+            ", {}",
+            (ast_to_string(&AstKind::ObjectExpression(&new_object)))
+        );
+        (insert_position, new_text)
+    } else {
+        // No second argument, create new object
+        let insert_position = position_from_offset(content, t_function_span.end - 1);
+        let new_object = builder.object_expression(
+            Span::default(),
+            builder.vec1(ObjectPropertyKind::ObjectProperty(
+                builder.alloc(new_property),
+            )),
+            None,
+        );
+
+        let new_text = format!(
+            ", {}",
+            (ast_to_string(&AstKind::ObjectExpression(&new_object)))
+        );
+        (insert_position, new_text)
+    };
+
+    Some(TextEdit {
+        range: Range::new(insert_position, insert_position),
+        new_text,
+    })
+}
+
+fn ast_to_string(node: &AstKind) -> String {
+    info!("CODE ACTION NODE --------> {:?}", node);
+    match node {
+        AstKind::ObjectExpression(obj) => {
+            let properties = obj
+                .properties
+                .iter()
+                .map(|prop| match prop {
+                    ObjectPropertyKind::ObjectProperty(p) => format!(
+                        "{}: {}",
+                        ast_to_string(&AstKind::PropertyKey(&p.key)),
+                        ast_to_string(&AstKind::from_expression(&p.value))
+                    ),
+                    _ => "".to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{{ {} }}", properties)
+        }
+        AstKind::ObjectProperty(obj_prop) => {
+            let key = ast_to_string(&AstKind::PropertyKey(&obj_prop.key));
+            let value = ast_to_string(&AstKind::from_expression(&obj_prop.value));
+            format!("{}: {}", key, value)
+        }
+        AstKind::StringLiteral(s) => format!("\"{}\"", s.value),
+        AstKind::IdentifierName(id) => id.name.to_string(),
+        AstKind::PropertyKey(key) => key.name().unwrap_or_default().to_string(),
+        _ => "\"\"".to_string(),
+    }
+}
+
+fn position_from_offset(content: &str, offset: u32) -> Position {
+    let mut line = 0;
+    let mut column = 0;
+    for (index, c) in content.char_indices() {
+        if index as u32 == offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            column = 0;
+        } else {
+            column += 1;
+        }
+    }
+    Position::new(line, column)
+}
